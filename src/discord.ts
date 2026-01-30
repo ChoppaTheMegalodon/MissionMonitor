@@ -24,7 +24,9 @@ import {
   registerMission,
   recordVote,
   removeVote,
+  StoredSubmission,
 } from './storage';
+import { appendSubmissionToSheet, updateSubmissionVotes } from './sheets';
 
 // Create Discord client with required intents
 export const discordClient = new Client({
@@ -164,6 +166,11 @@ discordClient.on(Events.MessageCreate, async (message) => {
     // Track in memory for quick lookups
     messageToSubmissionId.set(message.id, submission.id);
 
+    // Append to Google Sheets immediately
+    appendSubmissionToSheet(mission, submission).catch(err => {
+      console.error('[Discord] Failed to append submission to sheets:', err);
+    });
+
     // Add confirmation reaction and pre-create vote reactions
     try {
       // First add confirmation emoji
@@ -251,6 +258,15 @@ discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
   // Record the judge vote to file storage
   recordVote(submissionId, user.id, voteScore);
   console.log(`[Discord] Judge vote recorded: ${user.tag} gave ${voteScore} to submission ${submissionId}`);
+
+  // Update Google Sheets with new vote
+  const updatedSubmission = getSubmissionByMessage(messageId);
+  if (updatedSubmission) {
+    const votes = updatedSubmission.votes.map(v => ({ judgeId: v.judgeId, score: v.score }));
+    updateSubmissionVotes(updatedSubmission.missionId, submissionId, votes).catch(err => {
+      console.error('[Discord] Failed to update votes in sheets:', err);
+    });
+  }
 });
 
 /**
@@ -276,6 +292,15 @@ discordClient.on(Events.MessageReactionRemove, async (reaction, user) => {
   // Remove the vote from file storage
   removeVote(submissionId, user.id);
   console.log(`[Discord] Vote removed: ${user.tag} from submission ${submissionId}`);
+
+  // Update Google Sheets with removed vote
+  const updatedSubmission = getSubmissionByMessage(messageId);
+  if (updatedSubmission) {
+    const votes = updatedSubmission.votes.map(v => ({ judgeId: v.judgeId, score: v.score }));
+    updateSubmissionVotes(updatedSubmission.missionId, submissionId, votes).catch(err => {
+      console.error('[Discord] Failed to update votes in sheets:', err);
+    });
+  }
 });
 
 // ============================================================================

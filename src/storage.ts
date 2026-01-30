@@ -140,6 +140,14 @@ export function getMissionByThread(threadId: string): StoredMission | null {
 }
 
 /**
+ * Get mission by mission ID
+ */
+export function getMissionById(missionId: string): StoredMission | null {
+  const data = loadMissions();
+  return data.missions.find(m => m.id === missionId) || null;
+}
+
+/**
  * Get all active missions (not yet exported)
  */
 export function getActiveMissions(): StoredMission[] {
