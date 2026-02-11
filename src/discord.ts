@@ -12,21 +12,23 @@ import {
   Client,
   GatewayIntentBits,
   Events,
-  ThreadChannel,
-  Message,
   TextChannel,
+  ThreadChannel,
+  ChannelType,
 } from 'discord.js';
 import { config } from './config';
 import {
+  registerMission,
+  getMissionByThread,
   createSubmission,
   getSubmissionByMessage,
-  getMissionByThread,
-  registerMission,
+  getSubmissionsByMission,
   recordVote,
   removeVote,
-  StoredSubmission,
+  Mission,
+  Submission,
 } from './storage';
-import { appendSubmissionToSheet, updateSubmissionVotes } from './sheets';
+import { appendSubmissionToSheet, updateSubmissionVotes, isSheetsConfigured } from './sheets';
 
 // Create Discord client with required intents
 export const discordClient = new Client({
@@ -52,43 +54,6 @@ const VOTE_EMOJI_ORDER = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣']
 
 const CONFIRMATION_EMOJI = '📝';
 
-// ============================================================================
-// Discord Timestamp Parsing
-// ============================================================================
-
-/**
- * Parse Discord timestamp from message content
- * Discord timestamps look like: <t:1706619600:R> or <t:1706619600:F> or <t:1706619600>
- * The number is Unix epoch in seconds
- * Returns the first timestamp found, or null if none
- */
-function parseDiscordTimestamp(content: string): Date | null {
-  // Match Discord timestamp format: <t:TIMESTAMP> or <t:TIMESTAMP:STYLE>
-  const timestampRegex = /<t:(\d+)(?::[tTdDfFR])?>/g;
-  const match = timestampRegex.exec(content);
-
-  if (match && match[1]) {
-    const unixSeconds = parseInt(match[1], 10);
-    return new Date(unixSeconds * 1000);
-  }
-
-  return null;
-}
-
-/**
- * Fetch the parent (starter) message of a thread
- */
-async function fetchThreadStarterMessage(thread: ThreadChannel): Promise<Message | null> {
-  try {
-    // The thread ID is the same as the starter message ID for message-based threads
-    const starterMessage = await thread.fetchStarterMessage();
-    return starterMessage;
-  } catch (error) {
-    console.log(`[Discord] Could not fetch starter message for thread ${thread.id}:`, error);
-    return null;
-  }
-}
-
 // In-memory index for quick message -> submission lookups
 // This is rebuilt on each message, file storage is source of truth
 const messageToSubmissionId = new Map<string, string>();
@@ -97,35 +62,59 @@ const messageToSubmissionId = new Map<string, string>();
 // Event Handlers
 // ============================================================================
 
-discordClient.once(Events.ClientReady, async (client) => {
+discordClient.once(Events.ClientReady, (client) => {
   console.log(`[Discord] Bot ready: ${client.user?.tag}`);
   console.log(`[Discord] Watching guild: ${config.discordGuildId}`);
   console.log(`[Discord] Mission channel: ${config.discordMissionChannelId}`);
-
-  // Run retroactive scan for missed submissions
-  await scanMissedSubmissions();
+  console.log(`[Discord] Results channel: ${config.discordResultsChannelId}`);
+  console.log(`[Discord] Judge role IDs: ${config.discordJudgeRoleIds.join(', ')}`);
+  console.log(`[Discord] DEBUG: MessageContent intent enabled`);
 });
 
 /**
- * Handle new messages in mission THREADS
- * Submissions are posted as replies in threads under mission posts.
- * Check if it's a submission (contains URL) and pre-create vote reactions.
+ * Handle ALL messages for debugging, then filter
  */
 discordClient.on(Events.MessageCreate, async (message) => {
+  // Debug: Log all messages
+  console.log(`[Discord] DEBUG: MessageCreate event received`);
+  console.log(`[Discord] DEBUG: - Author: ${message.author.tag} (bot: ${message.author.bot})`);
+  console.log(`[Discord] DEBUG: - Channel: ${message.channel.id} (type: ${message.channel.type})`);
+  console.log(`[Discord] DEBUG: - Content length: ${message.content.length}`);
+  console.log(`[Discord] DEBUG: - Content preview: "${message.content.substring(0, 100)}${message.content.length > 100 ? '...' : ''}"`);
+
   // Ignore bot messages
-  if (message.author.bot) return;
+  if (message.author.bot) {
+    console.log(`[Discord] DEBUG: Ignoring bot message`);
+    return;
+  }
 
   // Only process messages in threads
-  if (!message.channel.isThread()) return;
+  if (!message.channel.isThread()) {
+    console.log(`[Discord] DEBUG: Not a thread (channel type: ${message.channel.type}), checking if mission channel...`);
+
+    // If it's in the mission channel directly, log for debugging
+    if (message.channel.id === config.discordMissionChannelId) {
+      console.log(`[Discord] DEBUG: Message in mission channel directly - use threads for submissions`);
+    }
+    return;
+  }
 
   const thread = message.channel as ThreadChannel;
+  console.log(`[Discord] DEBUG: Message in thread "${thread.name}" (parent: ${thread.parentId})`);
 
   // Check if thread's parent is the mission channel
-  if (thread.parentId !== config.discordMissionChannelId) return;
+  if (thread.parentId !== config.discordMissionChannelId) {
+    console.log(`[Discord] DEBUG: Thread parent (${thread.parentId}) doesn't match mission channel (${config.discordMissionChannelId})`);
+    return;
+  }
+
+  console.log(`[Discord] DEBUG: Thread is under mission channel - checking for URLs`);
 
   // Check if message contains a URL (potential submission)
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const urls = message.content.match(urlRegex);
+
+  console.log(`[Discord] DEBUG: URL regex match result: ${urls ? urls.join(', ') : 'null'}`);
 
   if (urls && urls.length > 0) {
     console.log(`[Discord] Submission in thread "${thread.name}" from ${message.author.tag}: ${urls[0]}`);
@@ -133,25 +122,11 @@ discordClient.on(Events.MessageCreate, async (message) => {
     // Ensure mission is registered (create if first submission)
     let mission = getMissionByThread(thread.id);
     if (!mission) {
-      // Try to parse deadline from the thread's starter message (mission post)
-      let deadline: Date | null = null;
-      const starterMessage = await fetchThreadStarterMessage(thread);
-
-      if (starterMessage) {
-        deadline = parseDiscordTimestamp(starterMessage.content);
-        if (deadline) {
-          console.log(`[Discord] Parsed deadline from mission post: ${deadline.toISOString()}`);
-        }
-      }
-
-      // Fallback: 7 days from now if no deadline found in post
-      if (!deadline) {
-        deadline = new Date();
-        deadline.setDate(deadline.getDate() + 7);
-        console.log(`[Discord] No deadline in post, using default: ${deadline.toISOString()}`);
-      }
-
-      mission = registerMission(thread.id, thread.name, deadline);
+      console.log(`[Discord] DEBUG: No mission found for thread, creating default mission`);
+      // Default deadline: 7 days from now (can be updated via command)
+      const defaultDeadline = new Date();
+      defaultDeadline.setDate(defaultDeadline.getDate() + 7);
+      mission = registerMission(thread.id, thread.name, defaultDeadline);
     }
 
     // Create submission in file storage
@@ -163,16 +138,19 @@ discordClient.on(Events.MessageCreate, async (message) => {
       message.author.id,
       message.author.tag,
       message.content,
-      urls
+      urls,
+      'discord'
     );
 
     // Track in memory for quick lookups
     messageToSubmissionId.set(message.id, submission.id);
 
-    // Append to Google Sheets immediately
-    appendSubmissionToSheet(mission, submission).catch(err => {
-      console.error('[Discord] Failed to append submission to sheets:', err);
-    });
+    // Append to Google Sheets (real-time)
+    if (isSheetsConfigured()) {
+      appendSubmissionToSheet(mission, submission).catch(err => {
+        console.error('[Discord] Failed to append to sheets:', err);
+      });
+    }
 
     // Add confirmation reaction and pre-create vote reactions
     try {
@@ -188,6 +166,8 @@ discordClient.on(Events.MessageCreate, async (message) => {
     } catch (error) {
       console.error('[Discord] Failed to add reactions:', error);
     }
+  } else {
+    console.log(`[Discord] DEBUG: No URLs found in message`);
   }
 });
 
@@ -197,8 +177,13 @@ discordClient.on(Events.MessageCreate, async (message) => {
  * Non-judge reactions are removed to keep voting clean.
  */
 discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
+  console.log(`[Discord] DEBUG: ReactionAdd event - emoji: ${reaction.emoji.name}, user: ${user.tag}`);
+
   // Ignore bot reactions (including our pre-created ones)
-  if (user.bot) return;
+  if (user.bot) {
+    console.log(`[Discord] DEBUG: Ignoring bot reaction`);
+    return;
+  }
 
   // Fetch partial data if needed
   if (reaction.partial) {
@@ -215,21 +200,27 @@ discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
 
   // Check if this is a vote emoji
   const voteScore = VOTE_EMOJIS[emoji];
-  if (voteScore === undefined) return;
+  if (voteScore === undefined) {
+    console.log(`[Discord] DEBUG: Not a vote emoji: ${emoji}`);
+    return;
+  }
 
   const messageId = reaction.message.id;
+  console.log(`[Discord] DEBUG: Vote emoji ${emoji} (score ${voteScore}) on message ${messageId}`);
 
   // Look up submission (check memory first, then file storage)
   let submissionId = messageToSubmissionId.get(messageId);
   if (!submissionId) {
     const submission = getSubmissionByMessage(messageId);
     if (!submission) {
-      // Not a tracked submission
+      console.log(`[Discord] DEBUG: Message ${messageId} is not a tracked submission`);
       return;
     }
     submissionId = submission.id;
     messageToSubmissionId.set(messageId, submissionId);
   }
+
+  console.log(`[Discord] DEBUG: Found submission ${submissionId}`);
 
   // Check if user has judge role
   let member = reaction.message.guild?.members.cache.get(user.id);
@@ -238,10 +229,14 @@ discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
     try {
       member = await reaction.message.guild?.members.fetch(user.id);
     } catch (e) {
-      console.log(`[Discord] Could not fetch member ${user.id}`);
+      console.log(`[Discord] DEBUG: Could not fetch member ${user.id}`);
       return;
     }
   }
+
+  const memberRoles = member?.roles.cache.map(r => r.id) || [];
+  console.log(`[Discord] DEBUG: User roles: ${memberRoles.join(', ')}`);
+  console.log(`[Discord] DEBUG: Required judge roles: ${config.discordJudgeRoleIds.join(', ')}`);
 
   const hasJudgeRole = config.discordJudgeRoleIds.some(roleId =>
     member?.roles.cache.has(roleId)
@@ -262,13 +257,22 @@ discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
   recordVote(submissionId, user.id, voteScore);
   console.log(`[Discord] Judge vote recorded: ${user.tag} gave ${voteScore} to submission ${submissionId}`);
 
-  // Update Google Sheets with new vote
-  const updatedSubmission = getSubmissionByMessage(messageId);
-  if (updatedSubmission) {
-    const votes = updatedSubmission.votes.map(v => ({ judgeId: v.judgeId, score: v.score }));
-    updateSubmissionVotes(updatedSubmission.missionId, submissionId, votes).catch(err => {
-      console.error('[Discord] Failed to update votes in sheets:', err);
-    });
+  // Update Google Sheets with new vote data
+  if (isSheetsConfigured()) {
+    const submission = getSubmissionByMessage(messageId);
+    if (submission) {
+      const votes = submission.votes.map(v => ({ judgeId: v.judgeId, score: v.score }));
+      // Re-add current vote since recordVote was just called
+      const existingIdx = votes.findIndex(v => v.judgeId === user.id);
+      if (existingIdx >= 0) {
+        votes[existingIdx].score = voteScore;
+      } else {
+        votes.push({ judgeId: user.id, score: voteScore });
+      }
+      updateSubmissionVotes(submission.missionId, submissionId, votes).catch(err => {
+        console.error('[Discord] Failed to update sheet votes:', err);
+      });
+    }
   }
 });
 
@@ -277,6 +281,8 @@ discordClient.on(Events.MessageReactionAdd, async (reaction, user) => {
  * Remove vote if judge removes their reaction
  */
 discordClient.on(Events.MessageReactionRemove, async (reaction, user) => {
+  console.log(`[Discord] DEBUG: ReactionRemove event - emoji: ${reaction.emoji.name}, user: ${user.tag}`);
+
   if (user.bot) return;
 
   const emoji = reaction.emoji.name;
@@ -295,142 +301,105 @@ discordClient.on(Events.MessageReactionRemove, async (reaction, user) => {
   // Remove the vote from file storage
   removeVote(submissionId, user.id);
   console.log(`[Discord] Vote removed: ${user.tag} from submission ${submissionId}`);
-
-  // Update Google Sheets with removed vote
-  const updatedSubmission = getSubmissionByMessage(messageId);
-  if (updatedSubmission) {
-    const votes = updatedSubmission.votes.map(v => ({ judgeId: v.judgeId, score: v.score }));
-    updateSubmissionVotes(updatedSubmission.missionId, submissionId, votes).catch(err => {
-      console.error('[Discord] Failed to update votes in sheets:', err);
-    });
-  }
 });
 
 // ============================================================================
-// Startup Scan for Missed Submissions
+// Mission Creation (called from Telegram)
 // ============================================================================
 
 /**
- * Scan mission threads for submissions that were missed while bot was offline.
- * Checks messages from the last 24 hours that have URLs but no confirmation emoji.
+ * Create a mission thread in the mission channel
+ * Returns the thread ID if successful
  */
-async function scanMissedSubmissions(): Promise<void> {
-  console.log('[Discord] Starting retroactive scan for missed submissions...');
+export async function createMissionThread(
+  title: string,
+  briefContent: string,
+  deadlineDays: number = 7
+): Promise<{ success: boolean; threadId?: string; error?: string }> {
+  console.log(`[Discord] DEBUG: createMissionThread called - title="${title}"`);
 
   try {
-    // Get the mission channel
-    const channel = await discordClient.channels.fetch(config.discordMissionChannelId);
-    if (!channel || !(channel instanceof TextChannel)) {
-      console.error('[Discord] Mission channel not found or not a text channel');
-      return;
+    const channel = discordClient.channels.cache.get(config.discordMissionChannelId);
+
+    if (!channel) {
+      console.error(`[Discord] Mission channel not found: ${config.discordMissionChannelId}`);
+      return { success: false, error: 'Mission channel not found' };
     }
 
-    // Get all active (non-archived) threads in the channel
-    const activeThreads = await channel.threads.fetchActive();
-    const archivedThreads = await channel.threads.fetchArchived({ limit: 20 });
+    if (channel.type !== ChannelType.GuildText) {
+      console.error(`[Discord] Mission channel is not a text channel`);
+      return { success: false, error: 'Mission channel is not a text channel' };
+    }
 
-    const allThreads = [
-      ...activeThreads.threads.values(),
-      ...archivedThreads.threads.values(),
-    ];
+    const textChannel = channel as TextChannel;
 
-    console.log(`[Discord] Found ${allThreads.length} threads to scan`);
+    // Create thread name (limit to 100 chars)
+    const threadName = title.length > 97 ? title.substring(0, 97) + '...' : title;
 
-    let missedCount = 0;
-    const cutoffTime = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
+    // Create a public thread
+    const thread = await textChannel.threads.create({
+      name: threadName,
+      autoArchiveDuration: 10080, // 7 days
+      reason: 'Mission created via Telegram bot',
+    });
 
-    for (const thread of allThreads) {
-      // Only process threads parented to the mission channel
-      if (thread.parentId !== config.discordMissionChannelId) continue;
+    console.log(`[Discord] Thread created: ${thread.id} - "${threadName}"`);
 
+    // Post the mission brief as the first message
+    await thread.send(briefContent);
+    console.log(`[Discord] Mission brief posted to thread`);
+
+    // Register the mission in storage
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + deadlineDays);
+    registerMission(thread.id, title, deadline, briefContent);
+
+    return { success: true, threadId: thread.id };
+  } catch (error) {
+    console.error('[Discord] Failed to create mission thread:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+// ============================================================================
+// Thread Management
+// ============================================================================
+
+/**
+ * Close a thread (lock it to prevent further messages)
+ * Called when mission deadline passes
+ */
+export async function closeThread(threadId: string): Promise<boolean> {
+  try {
+    const thread = discordClient.channels.cache.get(threadId) as ThreadChannel;
+
+    if (!thread) {
+      console.log(`[Discord] Thread ${threadId} not found in cache, trying to fetch`);
       try {
-        // Fetch recent messages (up to 100)
-        const messages = await thread.messages.fetch({ limit: 100 });
-
-        for (const [, message] of messages) {
-          // Skip bot messages
-          if (message.author.bot) continue;
-
-          // Skip messages older than 24 hours
-          if (message.createdTimestamp < cutoffTime) continue;
-
-          // Check if message contains a URL
-          const urlRegex = /(https?:\/\/[^\s]+)/g;
-          const urls = message.content.match(urlRegex);
-          if (!urls || urls.length === 0) continue;
-
-          // Check if already tracked in storage
-          const existingSubmission = getSubmissionByMessage(message.id);
-          if (existingSubmission) continue;
-
-          // Check if message already has confirmation emoji (was processed before)
-          const hasConfirmation = message.reactions.cache.has(CONFIRMATION_EMOJI);
-          if (hasConfirmation) continue;
-
-          // This is a missed submission - process it
-          console.log(`[Discord] Found missed submission in "${thread.name}" from ${message.author.tag}`);
-
-          // Ensure mission is registered
-          let mission = getMissionByThread(thread.id);
-          if (!mission) {
-            let deadline: Date | null = null;
-            const starterMessage = await fetchThreadStarterMessage(thread);
-
-            if (starterMessage) {
-              deadline = parseDiscordTimestamp(starterMessage.content);
-            }
-
-            if (!deadline) {
-              deadline = new Date();
-              deadline.setDate(deadline.getDate() + 7);
-            }
-
-            mission = registerMission(thread.id, thread.name, deadline);
-          }
-
-          // Create submission in storage
-          const submission = createSubmission(
-            message.id,
-            message.channel.id,
-            thread.id,
-            mission.id,
-            message.author.id,
-            message.author.tag,
-            message.content,
-            urls
-          );
-
-          // Track in memory
-          messageToSubmissionId.set(message.id, submission.id);
-
-          // Append to Google Sheets
-          appendSubmissionToSheet(mission, submission).catch(err => {
-            console.error('[Discord] Failed to append missed submission to sheets:', err);
-          });
-
-          // Add reactions
-          try {
-            await message.react(CONFIRMATION_EMOJI);
-            for (const emoji of VOTE_EMOJI_ORDER) {
-              await message.react(emoji);
-            }
-          } catch (err) {
-            console.error('[Discord] Failed to add reactions to missed submission:', err);
-          }
-
-          missedCount++;
-
-          // Small delay to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 500));
+        const fetchedThread = await discordClient.channels.fetch(threadId) as ThreadChannel;
+        if (fetchedThread && fetchedThread.isThread()) {
+          await fetchedThread.setLocked(true);
+          await fetchedThread.setArchived(true);
+          console.log(`[Discord] Thread ${threadId} closed and archived`);
+          return true;
         }
-      } catch (err) {
-        console.error(`[Discord] Error scanning thread ${thread.id}:`, err);
+      } catch (e) {
+        console.error(`[Discord] Failed to fetch thread ${threadId}:`, e);
+        return false;
       }
     }
 
-    console.log(`[Discord] Retroactive scan complete. Found ${missedCount} missed submissions.`);
+    if (thread && thread.isThread()) {
+      await thread.setLocked(true);
+      await thread.setArchived(true);
+      console.log(`[Discord] Thread ${threadId} closed and archived`);
+      return true;
+    }
+
+    return false;
   } catch (error) {
-    console.error('[Discord] Error during retroactive scan:', error);
+    console.error(`[Discord] Failed to close thread ${threadId}:`, error);
+    return false;
   }
 }
 
@@ -446,6 +415,7 @@ export async function startDiscordBot(): Promise<void> {
 
   try {
     await discordClient.login(config.discordBotToken);
+    console.log('[Discord] Login successful');
   } catch (error) {
     console.error('[Discord] Failed to login:', error);
     throw error;
@@ -458,35 +428,4 @@ export async function startDiscordBot(): Promise<void> {
 export async function stopDiscordBot(): Promise<void> {
   console.log('[Discord] Stopping bot...');
   await discordClient.destroy();
-}
-
-/**
- * Close/archive a mission thread
- * Called when deadline expires to prevent further submissions
- */
-export async function closeThread(threadId: string, reason?: string): Promise<boolean> {
-  try {
-    const thread = await discordClient.channels.fetch(threadId);
-
-    if (!thread || !thread.isThread()) {
-      console.error(`[Discord] Thread not found or not a thread: ${threadId}`);
-      return false;
-    }
-
-    const threadChannel = thread as ThreadChannel;
-
-    // Post closing message
-    const closingMessage = reason || '🔒 **Mission deadline reached.** This thread is now closed for submissions. Results will be posted shortly.';
-    await threadChannel.send(closingMessage);
-
-    // Lock the thread (prevent new messages) and archive it
-    await threadChannel.setLocked(true, 'Mission deadline reached');
-    await threadChannel.setArchived(true, 'Mission deadline reached');
-
-    console.log(`[Discord] Thread closed and archived: ${threadId}`);
-    return true;
-  } catch (error) {
-    console.error(`[Discord] Failed to close thread ${threadId}:`, error);
-    return false;
-  }
 }

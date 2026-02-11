@@ -1,15 +1,15 @@
 /**
  * Google Sheets Export for Mission Control Bot
  *
- * Exports mission submissions to Google Sheets when deadlines pass.
+ * Exports mission submissions to Google Sheets in real-time.
  */
 
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import { config } from './config';
 import {
-  StoredMission,
-  StoredSubmission,
+  Mission,
+  Submission,
   getSubmissionsByMission,
   getMissionById,
   markMissionExported,
@@ -24,7 +24,6 @@ import {
  * Create authenticated JWT for Google Sheets API
  */
 function createAuth(): JWT {
-  // Expects GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY in env
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
@@ -72,6 +71,7 @@ function sanitizeTitle(title: string): string {
 // Standard headers for mission sheets
 const SHEET_HEADERS = [
   'Submission ID',
+  'Source',
   'User ID',
   'User Tag',
   'URL',
@@ -85,7 +85,7 @@ const SHEET_HEADERS = [
 /**
  * Ensure a sheet exists for the mission, create if not
  */
-async function ensureMissionSheet(mission: StoredMission): Promise<any> {
+async function ensureMissionSheet(mission: Mission): Promise<any> {
   const doc = await getSpreadsheet();
   const sheetTitle = sanitizeTitle(mission.title);
 
@@ -95,6 +95,22 @@ async function ensureMissionSheet(mission: StoredMission): Promise<any> {
     sheet = await doc.addSheet({ title: sheetTitle });
     await sheet.setHeaderRow(SHEET_HEADERS);
     console.log(`[Sheets] Created new sheet: ${sheetTitle}`);
+  } else {
+    // Verify headers match (older sheets may be missing the Source column)
+    await sheet.loadHeaderRow();
+    if (!sheet.headerValues.includes('Source')) {
+      console.log(`[Sheets] Migrating sheet "${sheetTitle}" - adding Source column`);
+      const rows = await sheet.getRows();
+      const oldHeaders = sheet.headerValues;
+      const rowData = rows.map((r: any) => oldHeaders.map((h: string) => r.get(h) || ''));
+      const newHeaders = [oldHeaders[0], 'Source', ...oldHeaders.slice(1)];
+      await sheet.clear();
+      await sheet.setHeaderRow(newHeaders);
+      for (const data of rowData) {
+        await sheet.addRow([data[0], 'discord', ...data.slice(1)]);
+      }
+      console.log(`[Sheets] Migration complete: ${rowData.length} rows updated`);
+    }
   }
 
   return sheet;
@@ -108,8 +124,8 @@ async function ensureMissionSheet(mission: StoredMission): Promise<any> {
  * Append a new submission to the sheet immediately
  */
 export async function appendSubmissionToSheet(
-  mission: StoredMission,
-  submission: StoredSubmission
+  mission: Mission,
+  submission: Submission
 ): Promise<boolean> {
   // Don't update if mission is already closed/exported
   if (mission.status !== 'active') {
@@ -122,6 +138,7 @@ export async function appendSubmissionToSheet(
 
     const row = [
       submission.id,
+      submission.source || 'discord',
       submission.userId,
       submission.userTag,
       submission.urls[0] || '',
@@ -133,7 +150,7 @@ export async function appendSubmissionToSheet(
     ];
 
     await sheet.addRow(row);
-    console.log(`[Sheets] Appended submission ${submission.id} to "${mission.title}"`);
+    console.log(`[Sheets] Appended submission ${submission.id} (${submission.source}) to "${mission.title}"`);
     return true;
 
   } catch (error) {
@@ -208,7 +225,7 @@ export async function updateSubmissionVotes(
  *
  * Creates a new sheet tab for the mission with all submissions and votes.
  */
-export async function exportMissionToSheets(mission: StoredMission): Promise<{
+export async function exportMissionToSheets(mission: Mission): Promise<{
   success: boolean;
   rowCount: number;
   error?: string;
@@ -246,6 +263,7 @@ export async function exportMissionToSheets(mission: StoredMission): Promise<{
     // Build headers
     const headers = [
       'Submission ID',
+      'Source',
       'User ID',
       'User Tag',
       'URL',
@@ -271,6 +289,7 @@ export async function exportMissionToSheets(mission: StoredMission): Promise<{
 
       return [
         s.id,
+        s.source || 'discord',
         s.userId,
         s.userTag,
         s.urls[0] || '',
@@ -297,5 +316,82 @@ export async function exportMissionToSheets(mission: StoredMission): Promise<{
     const errorMessage = (error as Error).message;
     console.error(`[Sheets] Export failed: ${errorMessage}`);
     return { success: false, rowCount: 0, error: errorMessage };
+  }
+}
+
+/**
+ * Check if Google Sheets is configured
+ */
+export function isSheetsConfigured(): boolean {
+  return !!(
+    config.googleSpreadsheetId &&
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
+    process.env.GOOGLE_PRIVATE_KEY
+  );
+}
+
+// ============================================================================
+// Telegram Submissions
+// ============================================================================
+
+const TELEGRAM_SHEET_NAME = 'Telegram Submissions';
+const TELEGRAM_HEADERS = [
+  'Submission ID',
+  'User ID',
+  'Username',
+  'URL',
+  'Content',
+  'Submitted At',
+  'Chat ID',
+];
+
+/**
+ * Ensure Telegram submissions sheet exists
+ */
+async function ensureTelegramSheet(): Promise<any> {
+  const doc = await getSpreadsheet();
+
+  let sheet = doc.sheetsByTitle[TELEGRAM_SHEET_NAME];
+
+  if (!sheet) {
+    sheet = await doc.addSheet({ title: TELEGRAM_SHEET_NAME });
+    await sheet.setHeaderRow(TELEGRAM_HEADERS);
+    console.log(`[Sheets] Created Telegram submissions sheet`);
+  }
+
+  return sheet;
+}
+
+/**
+ * Append a Telegram submission to the sheet
+ */
+export async function appendTelegramSubmission(
+  submissionId: string,
+  userId: string,
+  username: string,
+  url: string,
+  content: string,
+  chatId: string
+): Promise<boolean> {
+  try {
+    const sheet = await ensureTelegramSheet();
+
+    const row = [
+      submissionId,
+      userId,
+      username,
+      url,
+      content.slice(0, 500),
+      new Date().toISOString(),
+      chatId,
+    ];
+
+    await sheet.addRow(row);
+    console.log(`[Sheets] Appended Telegram submission ${submissionId}`);
+    return true;
+
+  } catch (error) {
+    console.error(`[Sheets] Failed to append Telegram submission:`, error);
+    return false;
   }
 }

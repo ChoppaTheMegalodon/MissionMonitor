@@ -1,23 +1,27 @@
 {
   "name": "mission-control-bot",
   "version": "1.0.0",
-  "description": "Discord monitoring + Google Sheets export for Pyth Mission Control",
+  "description": "Always-online Telegram and Discord bot for Pyth Mission Control",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "docker:build": "docker build -t mission-control-bot .",
+    "docker:run": "docker run --env-file .env mission-control-bot"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@notionhq/client": "^2.2.15",
     "discord.js": "^14.14.1",
-    "google-spreadsheet": "^4.1.1",
+    "dotenv": "^16.4.1",
     "google-auth-library": "^9.6.0",
-    "grammy": "^1.21.1",
-    "dotenv": "^16.4.1"
+    "google-spreadsheet": "^4.1.1",
+    "grammy": "^1.21.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "typescript": "^5.3.3",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }

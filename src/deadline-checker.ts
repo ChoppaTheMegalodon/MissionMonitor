@@ -5,8 +5,8 @@
  * and triggers Google Sheets export.
  */
 
-import { getMissionsPastDeadline, markMissionClosed, StoredMission } from './storage';
-import { exportMissionToSheets } from './sheets';
+import { getMissionsPastDeadline, markMissionClosed, Mission } from './storage';
+import { exportMissionToSheets, isSheetsConfigured } from './sheets';
 import { closeThread } from './discord';
 
 // Check interval: 5 minutes
@@ -18,6 +18,10 @@ let checkInterval: NodeJS.Timeout | null = null;
  * Check for missions past deadline and export them
  */
 async function checkDeadlines(): Promise<void> {
+  if (!isSheetsConfigured()) {
+    return; // Skip if Google Sheets not configured
+  }
+
   const missionsPastDeadline = getMissionsPastDeadline();
 
   if (missionsPastDeadline.length === 0) {
@@ -53,6 +57,11 @@ async function checkDeadlines(): Promise<void> {
  * Start the deadline checker
  */
 export function startDeadlineChecker(): void {
+  if (!isSheetsConfigured()) {
+    console.log('[DeadlineChecker] Google Sheets not configured, skipping deadline checker');
+    return;
+  }
+
   console.log('[DeadlineChecker] Starting deadline checker (every 5 minutes)');
 
   // Run immediately on start

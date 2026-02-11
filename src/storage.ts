@@ -17,43 +17,47 @@ const MISSIONS_FILE = path.join(STORAGE_DIR, 'missions.json');
 // Types
 // ============================================================================
 
-export interface StoredVote {
+export interface Mission {
+  id: string;
+  title: string;
+  threadId: string;
+  deadline: string;
+  status: 'active' | 'closed' | 'exported';
+  createdAt: string;
+  exportedAt?: string;
+  brief?: string; // Optional: full mission brief content
+  telegramMessageId?: string; // Message ID of mission announcement in Telegram
+  telegramChatId?: string; // Chat ID where mission was announced
+}
+
+export interface Vote {
   judgeId: string;
   score: number;
   timestamp: string;
 }
 
-export interface StoredSubmission {
+export interface Submission {
   id: string;
   messageId: string;
   channelId: string;
   threadId: string;
-  missionId: string;           // Linked mission
+  missionId: string;
   userId: string;
   userTag: string;
   content: string;
   urls: string[];
-  votes: StoredVote[];
+  votes: Vote[];
   submittedAt: string;
   exported: boolean;
-}
-
-export interface StoredMission {
-  id: string;
-  title: string;
-  threadId: string;
-  deadline: string;            // ISO 8601
-  status: 'active' | 'closed' | 'exported';
-  createdAt: string;
-  exportedAt?: string;
+  source: 'discord' | 'telegram'; // Where submission came from
 }
 
 interface SubmissionsData {
-  submissions: StoredSubmission[];
+  submissions: Submission[];
 }
 
 interface MissionsData {
-  missions: StoredMission[];
+  missions: Mission[];
 }
 
 // ============================================================================
@@ -73,7 +77,7 @@ function loadSubmissions(): SubmissionsData {
     return { submissions: [] };
   }
   const content = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
-  return JSON.parse(content) as SubmissionsData;
+  return JSON.parse(content);
 }
 
 function saveSubmissions(data: SubmissionsData): void {
@@ -87,7 +91,7 @@ function loadMissions(): MissionsData {
     return { missions: [] };
   }
   const content = fs.readFileSync(MISSIONS_FILE, 'utf-8');
-  return JSON.parse(content) as MissionsData;
+  return JSON.parse(content);
 }
 
 function saveMissions(data: MissionsData): void {
@@ -105,36 +109,40 @@ function saveMissions(data: MissionsData): void {
 export function registerMission(
   threadId: string,
   title: string,
-  deadline: Date
-): StoredMission {
+  deadline: Date,
+  brief?: string
+): Mission {
+  console.log(`[Storage] DEBUG: registerMission called - threadId=${threadId}, title="${title}"`);
+
   const data = loadMissions();
 
   // Check if already exists
   const existing = data.missions.find(m => m.threadId === threadId);
   if (existing) {
+    console.log(`[Storage] DEBUG: Mission already exists: ${existing.id}`);
     return existing;
   }
 
-  const mission: StoredMission = {
+  const mission: Mission = {
     id: `mission-${Date.now()}`,
     title,
     threadId,
     deadline: deadline.toISOString(),
     status: 'active',
     createdAt: new Date().toISOString(),
+    brief,
   };
 
   data.missions.push(mission);
   saveMissions(data);
   console.log(`[Storage] Mission registered: ${mission.id} - "${title}"`);
-
   return mission;
 }
 
 /**
  * Get mission by thread ID
  */
-export function getMissionByThread(threadId: string): StoredMission | null {
+export function getMissionByThread(threadId: string): Mission | null {
   const data = loadMissions();
   return data.missions.find(m => m.threadId === threadId) || null;
 }
@@ -142,43 +150,35 @@ export function getMissionByThread(threadId: string): StoredMission | null {
 /**
  * Get mission by mission ID
  */
-export function getMissionById(missionId: string): StoredMission | null {
+export function getMissionById(missionId: string): Mission | null {
   const data = loadMissions();
   return data.missions.find(m => m.id === missionId) || null;
 }
 
 /**
- * Get all active missions (not yet exported)
+ * Get mission by Telegram message ID
  */
-export function getActiveMissions(): StoredMission[] {
+export function getMissionByTelegramMessage(messageId: string): Mission | null {
   const data = loadMissions();
-  return data.missions.filter(m => m.status === 'active');
+  return data.missions.find(m => m.telegramMessageId === messageId) || null;
 }
 
 /**
- * Get missions past their deadline that haven't been exported
+ * Update mission with Telegram message info
  */
-export function getMissionsPastDeadline(): StoredMission[] {
-  const now = new Date();
-  const data = loadMissions();
-  return data.missions.filter(m =>
-    m.status === 'active' && new Date(m.deadline) < now
-  );
-}
-
-/**
- * Update a mission's deadline
- */
-export function updateMissionDeadline(missionId: string, newDeadline: Date): boolean {
+export function updateMissionTelegramInfo(
+  missionId: string,
+  telegramMessageId: string,
+  telegramChatId: string
+): void {
   const data = loadMissions();
   const mission = data.missions.find(m => m.id === missionId);
-  if (mission && mission.status === 'active') {
-    mission.deadline = newDeadline.toISOString();
+  if (mission) {
+    mission.telegramMessageId = telegramMessageId;
+    mission.telegramChatId = telegramChatId;
     saveMissions(data);
-    console.log(`[Storage] Mission deadline updated: ${missionId} -> ${newDeadline.toISOString()}`);
-    return true;
+    console.log(`[Storage] Mission ${missionId} updated with Telegram info: msgId=${telegramMessageId}, chatId=${telegramChatId}`);
   }
-  return false;
 }
 
 /**
@@ -192,6 +192,25 @@ export function markMissionClosed(missionId: string): void {
     saveMissions(data);
     console.log(`[Storage] Mission marked closed: ${missionId}`);
   }
+}
+
+/**
+ * Get all active missions (not yet exported)
+ */
+export function getActiveMissions(): Mission[] {
+  const data = loadMissions();
+  return data.missions.filter(m => m.status === 'active');
+}
+
+/**
+ * Get missions past their deadline that haven't been exported
+ */
+export function getMissionsPastDeadline(): Mission[] {
+  const now = new Date();
+  const data = loadMissions();
+  return data.missions.filter(
+    m => m.status === 'active' && new Date(m.deadline) < now
+  );
 }
 
 /**
@@ -223,11 +242,14 @@ export function createSubmission(
   userId: string,
   userTag: string,
   content: string,
-  urls: string[]
-): StoredSubmission {
+  urls: string[],
+  source: 'discord' | 'telegram' = 'discord'
+): Submission {
+  console.log(`[Storage] DEBUG: createSubmission called - messageId=${messageId}, userId=${userId}, source=${source}`);
+
   const data = loadSubmissions();
 
-  const submission: StoredSubmission = {
+  const submission: Submission = {
     id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     messageId,
     channelId,
@@ -240,19 +262,19 @@ export function createSubmission(
     votes: [],
     submittedAt: new Date().toISOString(),
     exported: false,
+    source,
   };
 
   data.submissions.push(submission);
   saveSubmissions(data);
-  console.log(`[Storage] Submission created: ${submission.id}`);
-
+  console.log(`[Storage] Submission created: ${submission.id} (source: ${source})`);
   return submission;
 }
 
 /**
  * Get submission by message ID
  */
-export function getSubmissionByMessage(messageId: string): StoredSubmission | null {
+export function getSubmissionByMessage(messageId: string): Submission | null {
   const data = loadSubmissions();
   return data.submissions.find(s => s.messageId === messageId) || null;
 }
@@ -260,7 +282,7 @@ export function getSubmissionByMessage(messageId: string): StoredSubmission | nu
 /**
  * Get all submissions for a mission
  */
-export function getSubmissionsByMission(missionId: string): StoredSubmission[] {
+export function getSubmissionsByMission(missionId: string): Submission[] {
   const data = loadSubmissions();
   return data.submissions.filter(s => s.missionId === missionId);
 }
@@ -268,11 +290,9 @@ export function getSubmissionsByMission(missionId: string): StoredSubmission[] {
 /**
  * Add or update a vote on a submission
  */
-export function recordVote(
-  submissionId: string,
-  judgeId: string,
-  score: number
-): void {
+export function recordVote(submissionId: string, judgeId: string, score: number): void {
+  console.log(`[Storage] DEBUG: recordVote called - submissionId=${submissionId}, judgeId=${judgeId}, score=${score}`);
+
   const data = loadSubmissions();
   const submission = data.submissions.find(s => s.id === submissionId);
 
@@ -283,8 +303,7 @@ export function recordVote(
 
   // Check if judge already voted
   const existingVoteIndex = submission.votes.findIndex(v => v.judgeId === judgeId);
-
-  const vote: StoredVote = {
+  const vote: Vote = {
     judgeId,
     score,
     timestamp: new Date().toISOString(),
@@ -293,19 +312,22 @@ export function recordVote(
   if (existingVoteIndex >= 0) {
     // Update existing vote
     submission.votes[existingVoteIndex] = vote;
+    console.log(`[Storage] Vote updated: judge ${judgeId} changed to ${score} on ${submissionId}`);
   } else {
     // Add new vote
     submission.votes.push(vote);
+    console.log(`[Storage] Vote recorded: judge ${judgeId} gave ${score} to ${submissionId}`);
   }
 
   saveSubmissions(data);
-  console.log(`[Storage] Vote recorded: judge ${judgeId} gave ${score} to ${submissionId}`);
 }
 
 /**
  * Remove a vote from a submission
  */
 export function removeVote(submissionId: string, judgeId: string): void {
+  console.log(`[Storage] DEBUG: removeVote called - submissionId=${submissionId}, judgeId=${judgeId}`);
+
   const data = loadSubmissions();
   const submission = data.submissions.find(s => s.id === submissionId);
 
