@@ -376,7 +376,8 @@ export async function createMissionThread(
       .setTitle(`⚔️  ${title.toUpperCase()}`)
       .setDescription(
         `${shortBrief}\n\n` +
-        `⏰ <t:${deadlineEpoch}:R>  ·  🟢 **ACTIVE**`
+        `⏰ <t:${deadlineEpoch}:R>  ·  🟢 **ACTIVE**\n\n` +
+        `> ⚠️ *Stolen or low-effort content = ban. Your peers decide.*`
       )
       .setFooter({ text: 'Open thread to see full briefing & submit' });
 
@@ -416,6 +417,10 @@ export async function createMissionThread(
       .addFields({
         name: '🎯 HOW TO PARTICIPATE',
         value: 'Post your submission link in this thread.\nJudges will score entries from 1–5.',
+      })
+      .addFields({
+        name: '⚠️ DISCLAIMER',
+        value: 'Stolen or low-effort content = ban. Your peers decide.',
       })
       .setFooter({ text: 'Mission Control' })
       .setTimestamp();
