@@ -1092,6 +1092,54 @@ export async function startTelegramBot(): Promise<void> {
   });
 
   // ============================================================================
+  // /test-channel — Test channel posting + submission flow (no Discord needed)
+  // ============================================================================
+  telegramBot.command('testchannel', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const channelId = config.telegramChannelId;
+    if (!channelId) {
+      await ctx.reply('TELEGRAM_CHANNEL_ID not configured.');
+      return;
+    }
+
+    try {
+      // Post a test mission to the channel
+      const testText =
+        `🎯 *MISSION: Channel Test*\n\n` +
+        `This is a test mission to verify channel \\+ discussion group flow\\.\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `⏰ *Deadline:* Tomorrow\n` +
+        `📝 Comment on this post with your URL to submit\\.`;
+
+      const msg = await ctx.api.sendMessage(channelId, testText, { parse_mode: 'MarkdownV2' });
+      console.log(`[Telegram] Test channel post: msgId=${msg.message_id} in channel ${channelId}`);
+
+      // Register a fake mission so submissions work
+      const { registerMission, updateMissionTelegramInfo, getMissionByThread } = await import('./storage');
+      const fakeThreadId = `test-${Date.now()}`;
+      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      registerMission(fakeThreadId, 'Channel Test', deadline, 'Test mission for channel flow');
+
+      const mission = getMissionByThread(fakeThreadId);
+      if (mission) {
+        updateMissionTelegramInfo(mission.id, msg.message_id.toString(), channelId);
+      }
+
+      await ctx.reply(
+        `✅ Test mission posted to channel\\!\n\n` +
+        `• Channel msg ID: \`${msg.message_id}\`\n` +
+        `• Mission ID: \`${mission?.id}\`\n\n` +
+        `Now comment on the channel post with a URL from another account to test submissions\\.`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    } catch (error: any) {
+      console.error('[Telegram] /testchannel error:', error);
+      await ctx.reply(`Error: ${error.message}`);
+    }
+  });
+
+  // ============================================================================
   // /start Command
   // ============================================================================
   telegramBot.command('start', async (ctx) => {
