@@ -384,20 +384,40 @@ export async function startTelegramBot(): Promise<void> {
       const telegramMessage = formatMissionBrief(brief, campaigns.length);
 
       // Determine where to post the announcement
-      const announcementChannelId = config.telegramAnnouncementChannelId;
+      // Priority: Channel (nested comments) > Legacy group > Same chat
+      const channelId = config.telegramChannelId;
+      const legacyChannelId = config.telegramAnnouncementChannelId;
       let missionAnnouncement;
       let announcementChatId: string;
 
-      if (announcementChannelId) {
-        // Post to dedicated announcement channel
+      if (channelId) {
+        // Post to Telegram Channel (comments appear nested via linked Discussion Group)
         try {
           missionAnnouncement = await ctx.api.sendMessage(
-            announcementChannelId,
+            channelId,
             telegramMessage,
             { parse_mode: 'MarkdownV2' }
           );
-          announcementChatId = announcementChannelId;
-          console.log(`[Telegram] Mission announcement posted to channel ${announcementChannelId}: msgId=${missionAnnouncement.message_id}`);
+          announcementChatId = channelId;
+          console.log(`[Telegram] Mission posted to channel ${channelId}: msgId=${missionAnnouncement.message_id}`);
+        } catch (error) {
+          console.error(`[Telegram] Failed to post to channel:`, error);
+          await ctx.reply(
+            `⚠️ *Warning:* Could not post to channel\\. Check bot permissions\\.`,
+            { parse_mode: 'MarkdownV2' }
+          );
+          return;
+        }
+      } else if (legacyChannelId) {
+        // Legacy: Post to dedicated announcement group
+        try {
+          missionAnnouncement = await ctx.api.sendMessage(
+            legacyChannelId,
+            telegramMessage,
+            { parse_mode: 'MarkdownV2' }
+          );
+          announcementChatId = legacyChannelId;
+          console.log(`[Telegram] Mission announcement posted to legacy channel ${legacyChannelId}: msgId=${missionAnnouncement.message_id}`);
         } catch (error) {
           console.error(`[Telegram] Failed to post to announcement channel:`, error);
           await ctx.reply(
@@ -427,12 +447,12 @@ export async function startTelegramBot(): Promise<void> {
 
       // Notify in command chat about success
       if (threadResult.success) {
-        if (announcementChannelId) {
+        if (channelId || legacyChannelId) {
           await ctx.reply(
             `✅ *Mission created\\!*\n\n` +
             `• Discord thread created\n` +
-            `• Announcement posted to Telegram channel\n\n` +
-            `📝 Users can submit by replying to the mission announcement with their URL\\.`,
+            `• Announcement posted to Telegram ${channelId ? 'channel' : 'group'}\n\n` +
+            `📝 Users can submit by ${channelId ? 'commenting on the channel post' : 'replying to the mission announcement'} with their URL\\.`,
             { parse_mode: 'MarkdownV2' }
           );
         } else {
@@ -713,23 +733,41 @@ export async function startTelegramBot(): Promise<void> {
           `${escapeMarkdown(briefPreview)}\n\n` +
           `━`.repeat(35) + `\n` +
           `⏰ *Deadline:* ${escapeMarkdown(deadlineStr)}\n` +
-          `📝 Reply to this message with your URL to submit\\.`;
+          `📝 ${config.telegramChannelId ? 'Comment on this post' : 'Reply to this message'} with your URL to submit\\.`;
       }
 
-      // Post announcement
-      const announcementChannelId = config.telegramAnnouncementChannelId;
+      // Post announcement — Priority: Channel > Legacy group > Same chat
+      const tmplChannelId = config.telegramChannelId;
+      const tmplLegacyChannelId = config.telegramAnnouncementChannelId;
       let missionAnnouncement;
       let announcementChatId: string;
 
-      if (announcementChannelId) {
+      if (tmplChannelId) {
         try {
           missionAnnouncement = await ctx.api.sendMessage(
-            announcementChannelId,
+            tmplChannelId,
             announcementText,
             { parse_mode: 'MarkdownV2' }
           );
-          announcementChatId = announcementChannelId;
-          console.log(`[Telegram] Template mission announcement posted to channel ${announcementChannelId}`);
+          announcementChatId = tmplChannelId;
+          console.log(`[Telegram] Template mission posted to channel ${tmplChannelId}: msgId=${missionAnnouncement.message_id}`);
+        } catch (error) {
+          console.error(`[Telegram] Failed to post to channel:`, error);
+          await ctx.reply(
+            `⚠️ *Warning:* Could not post to channel\\. Check bot permissions\\.`,
+            { parse_mode: 'MarkdownV2' }
+          );
+          return;
+        }
+      } else if (tmplLegacyChannelId) {
+        try {
+          missionAnnouncement = await ctx.api.sendMessage(
+            tmplLegacyChannelId,
+            announcementText,
+            { parse_mode: 'MarkdownV2' }
+          );
+          announcementChatId = tmplLegacyChannelId;
+          console.log(`[Telegram] Template mission announcement posted to legacy channel ${tmplLegacyChannelId}`);
         } catch (error) {
           console.error(`[Telegram] Failed to post to announcement channel:`, error);
           await ctx.reply(
@@ -756,12 +794,12 @@ export async function startTelegramBot(): Promise<void> {
       }
 
       // Confirm success
-      if (announcementChannelId) {
+      if (tmplChannelId || tmplLegacyChannelId) {
         await ctx.reply(
           `✅ *Mission created from template "${escapeMarkdown(templateName)}"\\!*\n\n` +
           `• Discord thread created\n` +
-          `• Announcement posted to Telegram channel\n\n` +
-          `📝 Users can submit by replying to the mission announcement with their URL\\.`,
+          `• Announcement posted to Telegram ${tmplChannelId ? 'channel' : 'group'}\n\n` +
+          `📝 Users can submit by ${tmplChannelId ? 'commenting on the channel post' : 'replying to the mission announcement'} with their URL\\.`,
           { parse_mode: 'MarkdownV2' }
         );
       } else {
@@ -977,22 +1015,42 @@ export async function startTelegramBot(): Promise<void> {
         `${escapeMarkdown(briefPreview)}\n\n` +
         `━`.repeat(35) + `\n` +
         `⏰ *Deadline:* ${escapeMarkdown(deadlineStr)}\n` +
-        `📝 Reply to this message with your URL to submit\\.`;
+        `📝 ${config.telegramChannelId ? 'Comment on this post' : 'Reply to this message'} with your URL to submit\\.`;
 
-      // Post announcement to group
-      const announcementChannelId = config.telegramAnnouncementChannelId;
+      // Post announcement to group — Priority: Channel > Legacy group > Same chat
+      const channelId = config.telegramChannelId;
+      const legacyAnnouncementChannelId = config.telegramAnnouncementChannelId;
       let missionAnnouncement;
       let announcementChatId: string;
 
-      if (announcementChannelId) {
+      if (channelId) {
+        // Post to Telegram Channel (comments appear nested via linked Discussion Group)
         try {
           missionAnnouncement = await ctx.api.sendMessage(
-            announcementChannelId,
+            channelId,
             announcementText,
             { parse_mode: 'MarkdownV2' }
           );
-          announcementChatId = announcementChannelId;
-          console.log(`[Telegram] /create announcement posted to channel ${announcementChannelId}`);
+          announcementChatId = channelId;
+          console.log(`[Telegram] /create mission posted to channel ${channelId}: msgId=${missionAnnouncement.message_id}`);
+        } catch (error) {
+          console.error(`[Telegram] Failed to post to channel:`, error);
+          await ctx.reply(
+            `⚠️ *Warning:* Could not post to channel\\. Check bot permissions\\.`,
+            { parse_mode: 'MarkdownV2' }
+          );
+          return;
+        }
+      } else if (legacyAnnouncementChannelId) {
+        // Legacy: Post to dedicated announcement group
+        try {
+          missionAnnouncement = await ctx.api.sendMessage(
+            legacyAnnouncementChannelId,
+            announcementText,
+            { parse_mode: 'MarkdownV2' }
+          );
+          announcementChatId = legacyAnnouncementChannelId;
+          console.log(`[Telegram] /create announcement posted to legacy channel ${legacyAnnouncementChannelId}`);
         } catch (error) {
           console.error(`[Telegram] Failed to post to announcement channel:`, error);
           await ctx.reply(
@@ -1065,6 +1123,8 @@ export async function startTelegramBot(): Promise<void> {
 
   // ============================================================================
   // URL Detection - Mission-linked Submissions
+  // Supports both direct replies (legacy group) and channel comments
+  // (via auto-forwarded messages in linked Discussion Group)
   // ============================================================================
   telegramBot.on('message:text', async (ctx) => {
     // Skip commands
@@ -1084,17 +1144,45 @@ export async function startTelegramBot(): Promise<void> {
     console.log(`[Telegram] URL detected from ${ctx.from?.username} in chat ${chatId}: ${urls[0]}`);
 
     // Check if this is a reply to a mission message
-    const replyToId = ctx.message.reply_to_message?.message_id;
+    const replyTo = ctx.message.reply_to_message;
+    const replyToId = replyTo?.message_id;
 
-    // If it's a reply, check if it's a mission (allows submissions from announcement channel)
+    // If it's a reply, check if it's a mission
     if (replyToId) {
-      const mission = getMissionByTelegramMessage(replyToId.toString());
+      // Path 1: Direct reply in group (legacy — existing behavior)
+      let mission = getMissionByTelegramMessage(replyToId.toString());
+
+      // Path 2: Reply to auto-forwarded channel post in Discussion Group
+      // When a channel has a linked discussion group, Telegram auto-forwards
+      // each channel post. Comments reply to the forwarded copy, not the original.
+      // We trace back to the original channel message ID.
+      if (!mission && replyTo) {
+        let originalMsgId: string | undefined;
+
+        // Modern Bot API (7.0+): forward_origin.type === 'channel'
+        const forwardOrigin = (replyTo as any).forward_origin;
+        if (forwardOrigin?.type === 'channel' && forwardOrigin.message_id) {
+          originalMsgId = forwardOrigin.message_id.toString();
+          console.log(`[Telegram] Channel comment detected — forward_origin.message_id=${originalMsgId}`);
+        }
+        // Legacy Bot API fallback: forward_from_message_id
+        else if ((replyTo as any).forward_from_message_id) {
+          originalMsgId = (replyTo as any).forward_from_message_id.toString();
+          console.log(`[Telegram] Channel comment detected — forward_from_message_id=${originalMsgId}`);
+        }
+
+        if (originalMsgId) {
+          mission = getMissionByTelegramMessage(originalMsgId);
+        }
+      }
 
       if (mission) {
-        // This is a valid mission submission - process it
-        // Verify the submission is in the correct chat (where mission was announced)
-        if (mission.telegramChatId !== chatId) {
-          console.log(`[Telegram] Submission chat ${chatId} doesn't match mission chat ${mission.telegramChatId}`);
+        // Verify the submission is in a valid chat:
+        // - Original chat where mission was posted, OR
+        // - The linked Discussion Group (for channel comments)
+        const isDiscussionGroup = config.telegramDiscussionGroupId && chatId === config.telegramDiscussionGroupId;
+        if (!isDiscussionGroup && mission.telegramChatId !== chatId) {
+          console.log(`[Telegram] Submission chat ${chatId} doesn't match mission chat ${mission.telegramChatId} or discussion group`);
           return;
         }
 
@@ -1150,8 +1238,9 @@ export async function startTelegramBot(): Promise<void> {
       }
     }
 
-    // Not a mission reply - only respond if in allowed chat
-    if (!isAllowedChat(ctx)) return;
+    // Not a mission reply - only respond if in allowed chat or discussion group
+    const isDiscussionGroup = config.telegramDiscussionGroupId && chatId === config.telegramDiscussionGroupId;
+    if (!isAllowedChat(ctx) && !isDiscussionGroup) return;
 
     // Send hint about how to submit
     if (replyToId) {

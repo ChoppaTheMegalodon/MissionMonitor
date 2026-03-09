@@ -12,7 +12,9 @@ export interface BotConfig {
   // Telegram
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
-  telegramAnnouncementChannelId?: string; // Channel where mission announcements are posted
+  telegramAnnouncementChannelId?: string; // Legacy group where mission announcements are posted
+  telegramChannelId?: string; // Telegram Channel (broadcast) for mission posts
+  telegramDiscussionGroupId?: string; // Discussion group linked to channel (comments land here)
 
   // Discord
   discordBotToken: string;
@@ -58,6 +60,8 @@ export function loadConfig(): BotConfig {
     telegramBotToken: requireEnv('TELEGRAM_BOT_TOKEN'),
     telegramAllowedChatIds: parseArray(optionalEnv('TELEGRAM_ALLOWED_CHAT_IDS', '-5226358270')),
     telegramAnnouncementChannelId: optionalEnv('TELEGRAM_ANNOUNCEMENT_CHANNEL_ID') || undefined,
+    telegramChannelId: optionalEnv('TELEGRAM_CHANNEL_ID') || undefined,
+    telegramDiscussionGroupId: optionalEnv('TELEGRAM_DISCUSSION_GROUP_ID') || undefined,
 
     // Discord
     discordBotToken: requireEnv('DISCORD_BOT_TOKEN'),
