@@ -13,6 +13,7 @@ const STORAGE_DIR = path.join(__dirname, '..', 'data');
 const SUBMISSIONS_FILE = path.join(STORAGE_DIR, 'submissions.json');
 const MISSIONS_FILE = path.join(STORAGE_DIR, 'missions.json');
 const TEMPLATES_FILE = path.join(STORAGE_DIR, 'templates.json');
+const REFERRALS_FILE = path.join(STORAGE_DIR, 'referrals.json');
 
 // ============================================================================
 // Types
@@ -67,6 +68,47 @@ export interface MissionTemplate {
   updatedAt: string;
 }
 
+// ============================================================================
+// Referral Types
+// ============================================================================
+
+export interface Referral {
+  code: string;              // "PYTH-R3NX" format
+  referrerId: string;        // Telegram user ID
+  referrerUsername: string;
+  solanaWallet?: string;     // SOL wallet for receiving referral payouts
+  createdAt: string;
+}
+
+export interface ReferralAttribution {
+  recruitId: string;         // Telegram user ID
+  recruitUsername: string;
+  referrerCode: string;
+  referrerId: string;        // Denormalized for fast lookup
+  registeredAt: string;
+  expiresAt: string;         // registeredAt + 90 days
+  discordUserId?: string;    // Linked via /link command
+  solanaWallet?: string;     // SOL wallet for payouts
+}
+
+export interface ReferralPayout {
+  id: string;                // "rpay-{timestamp}"
+  missionId: string;
+  submissionId: string;
+  recruitId: string;
+  referrerId: string;
+  recruitPayout: number;
+  referralAmount: number;    // 10% of recruitPayout
+  createdAt: string;
+  exported: boolean;
+}
+
+interface ReferralsData {
+  referrals: Referral[];
+  attributions: ReferralAttribution[];
+  payouts: ReferralPayout[];
+}
+
 interface SubmissionsData {
   submissions: Submission[];
 }
@@ -116,6 +158,20 @@ function loadMissions(): MissionsData {
 function saveMissions(data: MissionsData): void {
   ensureStorageDir();
   fs.writeFileSync(MISSIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function loadReferrals(): ReferralsData {
+  ensureStorageDir();
+  if (!fs.existsSync(REFERRALS_FILE)) {
+    return { referrals: [], attributions: [], payouts: [] };
+  }
+  const content = fs.readFileSync(REFERRALS_FILE, 'utf-8');
+  return JSON.parse(content);
+}
+
+function saveReferrals(data: ReferralsData): void {
+  ensureStorageDir();
+  fs.writeFileSync(REFERRALS_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 // ============================================================================
@@ -226,6 +282,14 @@ export function getActiveMissions(): Mission[] {
 }
 
 /**
+ * Get all missions (any status)
+ */
+export function getAllMissions(): Mission[] {
+  const data = loadMissions();
+  return data.missions;
+}
+
+/**
  * Get missions past their deadline that haven't been exported
  */
 export function getMissionsPastDeadline(): Mission[] {
@@ -292,6 +356,14 @@ export function createSubmission(
   saveSubmissions(data);
   console.log(`[Storage] Submission created: ${submission.id} (source: ${source})`);
   return submission;
+}
+
+/**
+ * Get submission by submission ID
+ */
+export function getSubmissionById(submissionId: string): Submission | null {
+  const data = loadSubmissions();
+  return data.submissions.find(s => s.id === submissionId) || null;
 }
 
 /**
@@ -498,4 +570,297 @@ export function resolveTemplateVariables(
   vars: Record<string, string>
 ): string {
   return text.replace(/\{\{(\w+)\}\}/g, (match, key) => vars[key] ?? match);
+}
+
+// ============================================================================
+// Referral Functions
+// ============================================================================
+
+const REFERRAL_WORD_POOL = ['PYTH', 'SHARK', 'ORBIT', 'PULSE', 'FLAME', 'SPARK', 'ALPHA', 'HYDRA', 'NEXUS', 'CREED'];
+const UNAMBIGUOUS_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function generateReferralCode(): string {
+  const word = REFERRAL_WORD_POOL[Math.floor(Math.random() * REFERRAL_WORD_POOL.length)];
+  let suffix = '';
+  for (let i = 0; i < 4; i++) {
+    suffix += UNAMBIGUOUS_CHARS[Math.floor(Math.random() * UNAMBIGUOUS_CHARS.length)];
+  }
+  return `${word}-${suffix}`;
+}
+
+/**
+ * Create a referral code for a user. Returns existing code if user already has one.
+ */
+export function createReferralCode(referrerId: string, username: string): Referral {
+  const data = loadReferrals();
+
+  const existing = data.referrals.find(r => r.referrerId === referrerId);
+  if (existing) return existing;
+
+  // Generate unique code
+  let code: string;
+  do {
+    code = generateReferralCode();
+  } while (data.referrals.some(r => r.code === code));
+
+  const referral: Referral = {
+    code,
+    referrerId,
+    referrerUsername: username,
+    createdAt: new Date().toISOString(),
+  };
+
+  data.referrals.push(referral);
+  saveReferrals(data);
+  console.log(`[Storage] Referral code created: ${code} for user ${referrerId} (${username})`);
+  return referral;
+}
+
+/**
+ * Get referral by code (case-insensitive)
+ */
+export function getReferralByCode(code: string): Referral | null {
+  const data = loadReferrals();
+  const upper = code.toUpperCase();
+  return data.referrals.find(r => r.code.toUpperCase() === upper) || null;
+}
+
+/**
+ * Get all referral codes for a user
+ */
+export function getReferralsByUser(referrerId: string): Referral[] {
+  const data = loadReferrals();
+  return data.referrals.filter(r => r.referrerId === referrerId);
+}
+
+/**
+ * Register a referral attribution (recruit joined via code).
+ * Blocks self-referral and duplicate attribution.
+ */
+export function registerReferralAttribution(
+  recruitId: string,
+  username: string,
+  code: string,
+  attributionDays: number = 90
+): { success: boolean; error?: string } {
+  const data = loadReferrals();
+
+  // Find the referral code
+  const upper = code.toUpperCase();
+  const referral = data.referrals.find(r => r.code.toUpperCase() === upper);
+  if (!referral) {
+    return { success: false, error: 'Invalid referral code' };
+  }
+
+  // Block self-referral
+  if (referral.referrerId === recruitId) {
+    return { success: false, error: 'Cannot use your own referral code' };
+  }
+
+  // Block duplicate attribution
+  const existing = data.attributions.find(a => a.recruitId === recruitId);
+  if (existing) {
+    return { success: false, error: 'You have already been referred' };
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + attributionDays * 24 * 60 * 60 * 1000);
+
+  const attribution: ReferralAttribution = {
+    recruitId,
+    recruitUsername: username,
+    referrerCode: referral.code,
+    referrerId: referral.referrerId,
+    registeredAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  };
+
+  data.attributions.push(attribution);
+  saveReferrals(data);
+  console.log(`[Storage] Referral attribution: ${recruitId} (${username}) referred by ${referral.referrerId} via ${referral.code}`);
+  return { success: true };
+}
+
+/**
+ * Get attribution by recruit's Telegram user ID
+ */
+export function getAttributionByRecruit(recruitId: string): ReferralAttribution | null {
+  const data = loadReferrals();
+  return data.attributions.find(a => a.recruitId === recruitId) || null;
+}
+
+/**
+ * Get attribution by linked Discord user ID
+ */
+export function getAttributionByDiscordUser(discordId: string): ReferralAttribution | null {
+  const data = loadReferrals();
+  return data.attributions.find(a => a.discordUserId === discordId) || null;
+}
+
+/**
+ * Link a Discord user ID to a recruit's attribution record
+ */
+export function linkDiscordId(telegramId: string, discordId: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found for your account' };
+  }
+
+  // Check if this Discord ID is already linked to another attribution
+  const existingLink = data.attributions.find(a => a.discordUserId === discordId && a.recruitId !== telegramId);
+  if (existingLink) {
+    return { success: false, error: 'This Discord ID is already linked to another account' };
+  }
+
+  attribution.discordUserId = discordId;
+  saveReferrals(data);
+  console.log(`[Storage] Discord linked: Telegram ${telegramId} → Discord ${discordId}`);
+  return { success: true };
+}
+
+/**
+ * Set Solana wallet address for a recruit
+ */
+export function setSolanaWallet(telegramId: string, wallet: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found for your account. You must join via a referral link first.' };
+  }
+
+  attribution.solanaWallet = wallet;
+  saveReferrals(data);
+  console.log(`[Storage] Solana wallet set: Telegram ${telegramId} → ${wallet}`);
+  return { success: true };
+}
+
+/**
+ * Set Solana wallet address for a referrer (by their Telegram ID)
+ */
+export function setReferrerSolanaWallet(referrerId: string, wallet: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const referral = data.referrals.find(r => r.referrerId === referrerId);
+  if (!referral) {
+    return { success: false, error: 'You need to create a referral code first. Use /referral.' };
+  }
+
+  referral.solanaWallet = wallet;
+  saveReferrals(data);
+  console.log(`[Storage] Referrer wallet set: ${referrerId} → ${wallet}`);
+  return { success: true };
+}
+
+/**
+ * Record a referral payout for a mission winner.
+ * Checks attribution validity and 90-day expiry.
+ * Returns the payout if created, null if no valid attribution.
+ */
+export function recordReferralPayout(
+  missionId: string,
+  submissionId: string,
+  recruitId: string,
+  recruitPayout: number,
+  payoutSplit: number = 0.10
+): ReferralPayout | null {
+  // Try Telegram ID first, then Discord ID
+  let attribution = getAttributionByRecruit(recruitId);
+  if (!attribution) {
+    attribution = getAttributionByDiscordUser(recruitId);
+  }
+
+  if (!attribution) return null;
+
+  // Check expiry
+  if (new Date() > new Date(attribution.expiresAt)) {
+    console.log(`[Storage] Referral attribution expired for recruit ${recruitId}`);
+    return null;
+  }
+
+  const data = loadReferrals();
+
+  // Check for duplicate payout (same mission + submission)
+  const existing = data.payouts.find(p => p.missionId === missionId && p.submissionId === submissionId);
+  if (existing) return existing;
+
+  const referralAmount = Math.round(recruitPayout * payoutSplit * 100) / 100;
+
+  const payout: ReferralPayout = {
+    id: `rpay-${Date.now()}`,
+    missionId,
+    submissionId,
+    recruitId: attribution.recruitId,
+    referrerId: attribution.referrerId,
+    recruitPayout,
+    referralAmount,
+    createdAt: new Date().toISOString(),
+    exported: false,
+  };
+
+  data.payouts.push(payout);
+  saveReferrals(data);
+  console.log(`[Storage] Referral payout created: ${payout.id} - $${referralAmount} to referrer ${attribution.referrerId}`);
+  return payout;
+}
+
+/**
+ * Get referral stats for a referrer
+ */
+export function getReferralStats(referrerId: string): {
+  totalRecruits: number;
+  activeRecruits: number;
+  totalEarnings: number;
+  recentPayouts: ReferralPayout[];
+} {
+  const data = loadReferrals();
+  const now = new Date();
+
+  const allRecruits = data.attributions.filter(a => a.referrerId === referrerId);
+  const activeRecruits = allRecruits.filter(a => new Date(a.expiresAt) > now);
+  const payouts = data.payouts.filter(p => p.referrerId === referrerId);
+  const totalEarnings = payouts.reduce((sum, p) => sum + p.referralAmount, 0);
+  const recentPayouts = payouts
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+
+  return {
+    totalRecruits: allRecruits.length,
+    activeRecruits: activeRecruits.length,
+    totalEarnings: Math.round(totalEarnings * 100) / 100,
+    recentPayouts,
+  };
+}
+
+/**
+ * Look up wallet address for a user (checks both referrer and recruit records)
+ */
+export function getWalletForUser(userId: string): string | undefined {
+  const data = loadReferrals();
+  // Check referrer record
+  const referral = data.referrals.find(r => r.referrerId === userId);
+  if (referral?.solanaWallet) return referral.solanaWallet;
+  // Check recruit record
+  const attribution = data.attributions.find(a => a.recruitId === userId);
+  return attribution?.solanaWallet;
+}
+
+/**
+ * Get unexported referral payouts
+ */
+export function getUnexportedPayouts(): ReferralPayout[] {
+  const data = loadReferrals();
+  return data.payouts.filter(p => !p.exported);
+}
+
+/**
+ * Mark referral payouts as exported
+ */
+export function markPayoutsExported(ids: string[]): void {
+  const data = loadReferrals();
+  const idSet = new Set(ids);
+  data.payouts.forEach(p => {
+    if (idSet.has(p.id)) p.exported = true;
+  });
+  saveReferrals(data);
+  console.log(`[Storage] Marked ${ids.length} referral payouts as exported`);
 }

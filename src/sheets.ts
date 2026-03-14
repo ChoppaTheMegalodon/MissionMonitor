@@ -10,10 +10,16 @@ import { config } from './config';
 import {
   Mission,
   Submission,
+  ReferralPayout,
   getSubmissionsByMission,
   getMissionById,
   markMissionExported,
   markSubmissionsExported,
+  getUnexportedPayouts,
+  markPayoutsExported,
+  getReferralByCode,
+  getAttributionByRecruit,
+  getWalletForUser,
 } from './storage';
 
 // ============================================================================
@@ -405,5 +411,132 @@ export async function appendTelegramSubmission(
   } catch (error) {
     console.error(`[Sheets] Failed to append Telegram submission:`, error);
     return false;
+  }
+}
+
+// ============================================================================
+// Referral Payouts
+// ============================================================================
+
+const REFERRAL_SHEET_NAME = 'Referral Payouts';
+const REFERRAL_HEADERS = [
+  'Payout ID',
+  'Mission ID',
+  'Recruit ID',
+  'Recruit Username',
+  'Recruit Wallet',
+  'Referrer ID',
+  'Referrer Username',
+  'Referrer Wallet',
+  'Recruit Payout',
+  'Referral Amount (10%)',
+  'Created At',
+];
+
+/**
+ * Ensure Referral Payouts sheet exists
+ */
+async function ensureReferralPayoutSheet(): Promise<any> {
+  const doc = await getSpreadsheet();
+  let sheet = doc.sheetsByTitle[REFERRAL_SHEET_NAME];
+
+  if (!sheet) {
+    sheet = await doc.addSheet({ title: REFERRAL_SHEET_NAME });
+    await sheet.setHeaderRow(REFERRAL_HEADERS);
+    console.log(`[Sheets] Created Referral Payouts sheet`);
+  }
+
+  return sheet;
+}
+
+/**
+ * Append a single referral payout to the sheet (real-time)
+ */
+export async function appendReferralPayoutToSheet(payout: ReferralPayout): Promise<boolean> {
+  try {
+    const sheet = await ensureReferralPayoutSheet();
+
+    // Look up usernames and wallets
+    const attribution = getAttributionByRecruit(payout.recruitId);
+    const recruitUsername = attribution?.recruitUsername || payout.recruitId;
+    const recruitWallet = getWalletForUser(payout.recruitId) || '';
+
+    let referrerUsername = payout.referrerId;
+    if (attribution) {
+      const referral = getReferralByCode(attribution.referrerCode);
+      if (referral) referrerUsername = referral.referrerUsername;
+    }
+    const referrerWallet = getWalletForUser(payout.referrerId) || '';
+
+    const row = [
+      payout.id,
+      payout.missionId,
+      payout.recruitId,
+      recruitUsername,
+      recruitWallet,
+      payout.referrerId,
+      referrerUsername,
+      referrerWallet,
+      payout.recruitPayout.toFixed(2),
+      payout.referralAmount.toFixed(2),
+      payout.createdAt,
+    ];
+
+    await sheet.addRow(row);
+    console.log(`[Sheets] Appended referral payout ${payout.id}`);
+    return true;
+
+  } catch (error) {
+    console.error(`[Sheets] Failed to append referral payout:`, error);
+    return false;
+  }
+}
+
+/**
+ * Batch export all unexported referral payouts
+ */
+export async function exportReferralPayoutsToSheet(): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    const payouts = getUnexportedPayouts();
+    if (payouts.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    const sheet = await ensureReferralPayoutSheet();
+
+    for (const payout of payouts) {
+      const attribution = getAttributionByRecruit(payout.recruitId);
+      const recruitUsername = attribution?.recruitUsername || payout.recruitId;
+      const recruitWallet = getWalletForUser(payout.recruitId) || '';
+      let referrerUsername = payout.referrerId;
+      if (attribution) {
+        const referral = getReferralByCode(attribution.referrerCode);
+        if (referral) referrerUsername = referral.referrerUsername;
+      }
+      const referrerWallet = getWalletForUser(payout.referrerId) || '';
+
+      await sheet.addRow([
+        payout.id,
+        payout.missionId,
+        payout.recruitId,
+        recruitUsername,
+        recruitWallet,
+        payout.referrerId,
+        referrerUsername,
+        referrerWallet,
+        payout.recruitPayout.toFixed(2),
+        payout.referralAmount.toFixed(2),
+        payout.createdAt,
+      ]);
+    }
+
+    markPayoutsExported(payouts.map(p => p.id));
+    console.log(`[Sheets] Exported ${payouts.length} referral payouts`);
+    return { success: true, count: payouts.length };
+
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`[Sheets] Referral payout export failed: ${msg}`);
+    return { success: false, count: 0, error: msg };
   }
 }

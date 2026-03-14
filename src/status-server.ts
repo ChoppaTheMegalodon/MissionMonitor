@@ -14,7 +14,20 @@ import * as path from 'path';
 import { Client } from 'discord.js';
 import { config } from './config';
 import { isSheetsConfigured } from './sheets';
-import { getActiveMissions, getSubmissionsByMission } from './storage';
+import { appendReferralPayoutToSheet } from './sheets';
+import {
+  getActiveMissions,
+  getAllMissions,
+  getSubmissionsByMission,
+  getSubmissionById,
+  getMissionById,
+  recordReferralPayout,
+  recordVote,
+  getAttributionByRecruit,
+  getAttributionByDiscordUser,
+  getWalletForUser,
+  getReferralByCode,
+} from './storage';
 
 const PORT = parseInt(process.env.STATUS_PORT || '3000', 10);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -139,8 +152,12 @@ function serveFile(res: http.ServerResponse, filePath: string) {
 let server: http.Server | null = null;
 
 export function startStatusServer(): void {
-  server = http.createServer((req, res) => {
+  server = http.createServer(async (req, res) => {
     const url = req.url?.split('?')[0] || '/';
+
+    // -----------------------------------------------------------------------
+    // JSON API endpoints
+    // -----------------------------------------------------------------------
 
     if (url === '/status.json') {
       const payload = JSON.stringify(buildStatus());
@@ -152,12 +169,153 @@ export function startStatusServer(): void {
       return;
     }
 
+    if (url === '/api/missions') {
+      const missions = getAllMissions().sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      const payload = missions.map(m => {
+        const subs = getSubmissionsByMission(m.id);
+        return {
+          ...m,
+          submissions: subs.map(s => {
+            const scores = s.votes.map(v => v.score);
+            const avgScore = scores.length > 0
+              ? (scores.reduce((a, b) => a + b, 0) / scores.length)
+              : null;
+
+            // Look up wallet and referral info
+            const attribution = getAttributionByRecruit(s.userId) || getAttributionByDiscordUser(s.userId);
+            const wallet = getWalletForUser(s.userId);
+
+            return {
+              id: s.id,
+              userId: s.userId,
+              userTag: s.userTag,
+              source: s.source,
+              urls: s.urls,
+              content: s.content.slice(0, 200),
+              submittedAt: s.submittedAt,
+              voteCount: s.votes.length,
+              avgScore: avgScore !== null ? Math.round(avgScore * 100) / 100 : null,
+              wallet: wallet || null,
+              referred: !!attribution,
+              referrerCode: attribution?.referrerCode || null,
+            };
+          }).sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0)),
+        };
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(JSON.stringify(payload));
+      return;
+    }
+
+    if (url === '/api/payout' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { submissionId, amount } = JSON.parse(body);
+          if (!submissionId || typeof amount !== 'number' || amount <= 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'submissionId and positive amount required' }));
+            return;
+          }
+
+          const submission = getSubmissionById(submissionId);
+          if (!submission) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Submission not found' }));
+            return;
+          }
+
+          const payout = recordReferralPayout(
+            submission.missionId,
+            submission.id,
+            submission.userId,
+            amount,
+            config.referralPayoutSplit
+          );
+
+          // Export to Sheets if configured
+          if (payout && isSheetsConfigured()) {
+            await appendReferralPayoutToSheet(payout).catch(err => {
+              console.error('[Status] Failed to export referral payout to Sheets:', err);
+            });
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            submission: { id: submission.id, userTag: submission.userTag, userId: submission.userId },
+            referralPayout: payout ? {
+              id: payout.id,
+              referrerId: payout.referrerId,
+              referralAmount: payout.referralAmount,
+            } : null,
+          }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+      return;
+    }
+
+    if (url === '/api/score' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const { submissionId, score } = JSON.parse(body);
+          if (!submissionId || typeof score !== 'number' || score < 0 || score > 10) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'submissionId and score (0-10) required' }));
+            return;
+          }
+
+          const submission = getSubmissionById(submissionId);
+          if (!submission) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Submission not found' }));
+            return;
+          }
+
+          recordVote(submissionId, 'dashboard-admin', score);
+
+          // Re-read to get updated averages
+          const updated = getSubmissionById(submissionId)!;
+          const scores = updated.votes.map(v => v.score);
+          const avg = scores.length > 0
+            ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
+            : null;
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            voteCount: updated.votes.length,
+            avgScore: avg,
+          }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+      return;
+    }
+
+    // -----------------------------------------------------------------------
     // Static dashboard files
+    // -----------------------------------------------------------------------
     const fileMap: Record<string, string> = {
       '/': 'index.html',
       '/index.html': 'index.html',
       '/style.css': 'style.css',
       '/dashboard.js': 'dashboard.js',
+      '/payouts': 'payouts.html',
+      '/payouts.html': 'payouts.html',
+      '/payouts.js': 'payouts.js',
     };
 
     const fileName = fileMap[url];

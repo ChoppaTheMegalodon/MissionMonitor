@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Payouts</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    main { max-width: 1100px; }
+
+    nav { display: flex; gap: 1rem; padding: 0.5rem 2rem; border-bottom: 1px solid #21262d; font-size: 0.85rem; }
+    nav a { color: #58a6ff; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+
+    .mission-block { background: #161b22; border: 1px solid #21262d; border-radius: 0.5rem; margin-bottom: 1.5rem; overflow: hidden; }
+    .mission-header { padding: 1rem 1.25rem; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; }
+    .mission-title { font-weight: 600; color: #f0f6fc; font-size: 1rem; }
+    .mission-meta { font-size: 0.8rem; color: #8b949e; }
+    .mission-status { padding: 0.2rem 0.6rem; border-radius: 1rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .mission-status.active { background: #0d3820; color: #3fb950; }
+    .mission-status.closed { background: #3d2e00; color: #d29922; }
+    .mission-status.exported { background: #1c2541; color: #58a6ff; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.6rem 1rem; color: #8b949e; font-weight: 600; border-bottom: 1px solid #21262d; font-size: 0.75rem; text-transform: uppercase; }
+    td { padding: 0.6rem 1rem; border-bottom: 1px solid #21262d; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: #1c2128; }
+
+    .score { font-weight: 600; }
+    .score.high { color: #3fb950; }
+    .score.mid { color: #d29922; }
+    .score.low { color: #8b949e; }
+
+    .wallet-addr { font-family: monospace; font-size: 0.75rem; color: #8b949e; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .referred-badge { background: #1c2541; color: #58a6ff; padding: 0.15rem 0.5rem; border-radius: 0.75rem; font-size: 0.7rem; }
+    .no-wallet { color: #f85149; font-size: 0.75rem; }
+
+    .payout-input, .score-input { width: 80px; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 0.3rem 0.5rem; border-radius: 0.25rem; font-size: 0.85rem; text-align: right; }
+    .payout-input:focus, .score-input:focus { border-color: #58a6ff; outline: none; }
+    .score-input { width: 52px; }
+    .score-saved { color: #3fb950; font-size: 0.7rem; opacity: 0; transition: opacity 0.3s; }
+    .score-saved.show { opacity: 1; }
+
+    .btn { padding: 0.3rem 0.75rem; border: none; border-radius: 0.25rem; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+    .btn-pay { background: #238636; color: #fff; }
+    .btn-pay:hover { background: #2ea043; }
+    .btn-pay:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+    .btn-export { background: #1c2541; color: #58a6ff; border: 1px solid #30363d; margin-bottom: 1.5rem; padding: 0.5rem 1rem; }
+    .btn-export:hover { background: #253255; }
+
+    .payout-result { font-size: 0.75rem; margin-left: 0.5rem; }
+    .payout-result.ok { color: #3fb950; }
+    .payout-result.err { color: #f85149; }
+
+    .url-link { color: #58a6ff; text-decoration: none; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+    .url-link:hover { text-decoration: underline; }
+
+    .empty-state { padding: 2rem; text-align: center; color: #484f58; }
+
+    .filter-bar { display: flex; gap: 0.75rem; margin-bottom: 1rem; align-items: center; flex-wrap: wrap; }
+    .filter-bar select, .filter-bar input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 0.4rem 0.6rem; border-radius: 0.25rem; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mission Payouts</h1>
+    <div id="overall-status" class="badge">Loading...</div>
+  </header>
+  <nav>
+    <a href="/">Status</a>
+    <a href="/payouts"><strong>Payouts</strong></a>
+  </nav>
+  <main>
+    <div class="filter-bar">
+      <label>Status: <select id="filter-status">
+        <option value="all">All</option>
+        <option value="active">Active</option>
+        <option value="closed" selected>Closed</option>
+        <option value="exported">Exported</option>
+      </select></label>
+      <button class="btn btn-export" id="export-csv">Export Payouts CSV</button>
+    </div>
+    <div id="missions-container">
+      <div class="empty-state">Loading missions...</div>
+    </div>
+  </main>
+  <footer>
+    <p>Mission Control Dashboard</p>
+  </footer>
+  <script src="payouts.js"></script>
+</body>
+</html>

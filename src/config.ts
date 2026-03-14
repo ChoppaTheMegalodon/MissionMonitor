@@ -35,6 +35,10 @@ export interface BotConfig {
   googleSpreadsheetId?: string;
   googleServiceAccountEmail?: string;
   googlePrivateKey?: string;
+
+  // Referral system
+  referralPayoutSplit: number;
+  referralAttributionDays: number;
 }
 
 function requireEnv(key: string): string {
@@ -82,6 +86,10 @@ export function loadConfig(): BotConfig {
     googleSpreadsheetId: optionalEnv('GOOGLE_SPREADSHEET_ID') || undefined,
     googleServiceAccountEmail: optionalEnv('GOOGLE_SERVICE_ACCOUNT_EMAIL') || undefined,
     googlePrivateKey: optionalEnv('GOOGLE_PRIVATE_KEY') || undefined,
+
+    // Referral system
+    referralPayoutSplit: parseFloat(optionalEnv('REFERRAL_PAYOUT_SPLIT', '0.10')),
+    referralAttributionDays: parseInt(optionalEnv('REFERRAL_ATTRIBUTION_DAYS', '90'), 10),
   };
 }
 

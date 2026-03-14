@@ -25,6 +25,14 @@ import {
   getMissionByThread,
   createSubmission,
   getTemplateByName,
+  createReferralCode,
+  getReferralByCode,
+  registerReferralAttribution,
+  linkDiscordId,
+  getReferralStats,
+  recordReferralPayout,
+  setSolanaWallet,
+  setReferrerSolanaWallet,
 } from './storage';
 import {
   handleTemplateMissionCommand,
@@ -33,7 +41,7 @@ import {
   handleCreateTemplateCommand,
   handleDeleteTemplateCommand,
 } from './commands/handlers';
-import { appendSubmissionToSheet, isSheetsConfigured } from './sheets';
+import { appendSubmissionToSheet, appendReferralPayoutToSheet, isSheetsConfigured } from './sheets';
 
 let telegramBot: Bot | null = null;
 
@@ -593,6 +601,13 @@ export async function startTelegramBot(): Promise<void> {
       '/tnew \\- Create a new template\n' +
       '/tview \\<name\\> \\- View template details\n' +
       '/tdel \\<name\\> \\- Delete a template\n\n' +
+      '*Referral Commands:*\n' +
+      '/referral \\- Get your referral link\n' +
+      '/referrals \\- View your referral stats\n' +
+      '/wallet \\<sol\\_address\\> \\- Set your payout wallet\n' +
+      '/link \\<discord\\_id\\> \\- Link Discord for submission tracking\n\n' +
+      '*Admin Commands:*\n' +
+      '/payout \\<sub\\_id\\> \\<amount\\> \\- Record payout \\(triggers referral bonus\\)\n\n' +
       '*Content Submissions \\(group chat\\):*\n' +
       'Reply to a mission message with your URL to submit\\.\n\n' +
       '\\-\\-\\-\n' +
@@ -1140,16 +1155,269 @@ export async function startTelegramBot(): Promise<void> {
   });
 
   // ============================================================================
-  // /start Command
+  // /start Command — handles referral deep links
   // ============================================================================
   telegramBot.command('start', async (ctx) => {
     console.log(`[Telegram] DEBUG: /start command received from chat ${ctx.chat?.id}`);
+    const payload = (ctx.match as string)?.trim();
+
+    // Check if payload is a referral code (e.g. PYTH-R3NX)
+    if (payload && /^[A-Z]+-[A-Z0-9]{4}$/i.test(payload)) {
+      const userId = ctx.from?.id?.toString();
+      const username = ctx.from?.username || ctx.from?.first_name || 'unknown';
+
+      if (!userId) {
+        await ctx.reply('Could not identify your account\\. Please try again\\.', { parse_mode: 'MarkdownV2' });
+        return;
+      }
+
+      const result = registerReferralAttribution(userId, username, payload, config.referralAttributionDays);
+
+      if (result.success) {
+        const referral = getReferralByCode(payload);
+        await ctx.reply(
+          `🎯 *Welcome to Pythian Propaganda\\!*\n\n` +
+          `You were referred by @${escapeMarkdown(referral?.referrerUsername || 'a community member')}\\.\n\n` +
+          `Submit to missions and earn rewards\\. Your referrer earns ${Math.round(config.referralPayoutSplit * 100)}% of your winnings for ${config.referralAttributionDays} days\\.\n\n` +
+          `*Next steps:*\n` +
+          `1\\. /wallet \\<solana\\_address\\> — Set your SOL wallet for payouts\n` +
+          `2\\. /link \\<discord\\_id\\> — Link your Discord for submission tracking\n` +
+          `3\\. /help — See all available commands`,
+          { parse_mode: 'MarkdownV2' }
+        );
+        console.log(`[Telegram] Referral registration: ${userId} (${username}) via code ${payload}`);
+      } else {
+        // Still welcome them even if referral failed
+        await ctx.reply(
+          `*Mission Control Bot*\n\n` +
+          `⚠️ Referral: ${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
+          `Use /help to see available commands\\.`,
+          { parse_mode: 'MarkdownV2' }
+        );
+      }
+      return;
+    }
+
+    // Default welcome (no referral code)
     await ctx.reply(
       '*Mission Control Bot*\n\n' +
       'Generate mission briefs from Notion content and create Discord threads for submissions\\.\n\n' +
       'Use /help to see available commands\\.',
       { parse_mode: 'MarkdownV2' }
     );
+  });
+
+  // ============================================================================
+  // /referral Command — Get your referral code + deep link
+  // ============================================================================
+  telegramBot.command('referral', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const userId = ctx.from?.id?.toString();
+    const username = ctx.from?.username || ctx.from?.first_name || 'unknown';
+
+    if (!userId) {
+      await ctx.reply('Could not identify your account\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    const referral = createReferralCode(userId, username);
+    const botInfo = await ctx.api.getMe();
+    const deepLink = `t.me/${botInfo.username}?start=${referral.code}`;
+
+    await ctx.reply(
+      `🔗 *Your Referral Code:* \`${referral.code}\`\n\n` +
+      `📲 *Share this link:*\n${escapeMarkdown(deepLink)}\n\n` +
+      `When someone joins through your link and wins missions, you earn *${Math.round(config.referralPayoutSplit * 100)}%* of their payouts for *${config.referralAttributionDays} days*\\.\n\n` +
+      `Use /referrals to check your stats\\.`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  });
+
+  // ============================================================================
+  // /referrals Command — View referral stats
+  // ============================================================================
+  telegramBot.command('referrals', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const userId = ctx.from?.id?.toString();
+    if (!userId) {
+      await ctx.reply('Could not identify your account\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    const stats = getReferralStats(userId);
+
+    let message = `📊 *Your Referral Stats*\n\n`;
+    message += `👥 Total recruits: ${stats.totalRecruits}\n`;
+    message += `✅ Active recruits \\(within ${config.referralAttributionDays}d\\): ${stats.activeRecruits}\n`;
+    message += `💰 Total earnings: $${escapeMarkdown(stats.totalEarnings.toFixed(2))}\n`;
+
+    if (stats.recentPayouts.length > 0) {
+      message += `\n*Recent Payouts:*\n`;
+      for (const p of stats.recentPayouts) {
+        const date = new Date(p.createdAt).toLocaleDateString();
+        message += `• ${escapeMarkdown(date)} — \\$${escapeMarkdown(p.referralAmount.toFixed(2))} \\(mission payout: \\$${escapeMarkdown(p.recruitPayout.toFixed(2))}\\)\n`;
+      }
+    } else {
+      message += `\n_No payouts yet\\. Share your referral link to start earning\\!_`;
+    }
+
+    message += `\n\nUse /referral to get your link\\.`;
+    await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+  });
+
+  // ============================================================================
+  // /link Command — Link Discord ID for submission tracking
+  // ============================================================================
+  telegramBot.command('link', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const discordId = (ctx.match as string)?.trim();
+    if (!discordId || !/^\d{17,20}$/.test(discordId)) {
+      await ctx.reply(
+        '*Usage:* /link \\<discord\\_user\\_id\\>\n\n' +
+        '*Example:* \\`/link 123456789012345678\\`\n\n' +
+        '_Your Discord user ID is a 17\\-20 digit number\\. Enable Developer Mode in Discord settings, then right\\-click your username → Copy ID\\._',
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    const userId = ctx.from?.id?.toString();
+    if (!userId) {
+      await ctx.reply('Could not identify your account\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    const result = linkDiscordId(userId, discordId);
+    if (result.success) {
+      await ctx.reply(
+        `✅ *Discord linked\\!*\n\n` +
+        `Your Discord ID \`${discordId}\` is now linked to your Telegram account\\. Discord mission submissions will be tracked for referral payouts\\.`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    } else {
+      await ctx.reply(
+        `⚠️ ${escapeMarkdown(result.error || 'Unknown error')}`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+  });
+
+  // ============================================================================
+  // /wallet Command — Set Solana wallet for payouts
+  // ============================================================================
+  telegramBot.command('wallet', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const wallet = (ctx.match as string)?.trim();
+    if (!wallet) {
+      await ctx.reply(
+        '*Usage:* /wallet \\<solana\\_address\\>\n\n' +
+        '*Example:* \\`/wallet 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU\\`\n\n' +
+        '_Your Solana wallet address for receiving mission payouts\\._',
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    // Basic Solana address validation (base58, 32-44 chars)
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+      await ctx.reply('*Error:* Invalid Solana address\\. Should be 32\\-44 base58 characters\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    const userId = ctx.from?.id?.toString();
+    if (!userId) {
+      await ctx.reply('Could not identify your account\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    // Try setting as recruit first, then as referrer
+    const recruitResult = setSolanaWallet(userId, wallet);
+    const referrerResult = setReferrerSolanaWallet(userId, wallet);
+
+    if (recruitResult.success || referrerResult.success) {
+      await ctx.reply(
+        `✅ *Wallet saved\\!*\n\n` +
+        `\`${escapeMarkdown(wallet)}\`\n\n` +
+        `_This wallet will be used for mission payouts and referral bonuses\\._`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    } else {
+      await ctx.reply(
+        `⚠️ Could not save wallet\\. You need to either join via a referral link or create a referral code with /referral first\\.`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+  });
+
+  // ============================================================================
+  // /payout Command — Manually record a payout for a submission (admin only)
+  // ============================================================================
+  telegramBot.command('payout', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const rawArgs = (ctx.match as string)?.trim();
+    if (!rawArgs) {
+      await ctx.reply(
+        '*Usage:* /payout \\<submission\\_id\\> \\<amount\\>\n\n' +
+        '*Example:* \\`/payout sub\\-1234567890\\-ab3f 100\\`\n\n' +
+        '_Records a payout for the submission\\. If the winner was referred, their referrer automatically gets ' +
+        `${Math.round(config.referralPayoutSplit * 100)}% as a referral bonus\\._`,
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    const parts = rawArgs.split(/\s+/);
+    if (parts.length < 2) {
+      await ctx.reply('*Error:* Need both submission ID and amount\\. Example: \\`/payout sub\\-123 100\\`', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    const submissionId = parts[0];
+    const amount = parseFloat(parts[1]);
+    if (isNaN(amount) || amount <= 0) {
+      await ctx.reply('*Error:* Amount must be a positive number\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    // Look up submission directly
+    const { getSubmissionById } = await import('./storage');
+    const submission = getSubmissionById(submissionId);
+
+    if (!submission) {
+      await ctx.reply(`*Error:* Submission \`${escapeMarkdown(submissionId)}\` not found\\.`, { parse_mode: 'MarkdownV2' });
+      return;
+    }
+
+    // Record referral payout (checks attribution automatically)
+    const payout = recordReferralPayout(
+      submission.missionId,
+      submission.id,
+      submission.userId,
+      amount,
+      config.referralPayoutSplit
+    );
+
+    let message = `✅ *Payout recorded:* \\$${escapeMarkdown(amount.toFixed(2))} to ${escapeMarkdown(submission.userTag)}\n`;
+
+    if (payout) {
+      message += `\n🔗 *Referral bonus:* \\$${escapeMarkdown(payout.referralAmount.toFixed(2))} to referrer \\(${escapeMarkdown(payout.referrerId)}\\)`;
+
+      // Export to Sheets if configured
+      if (isSheetsConfigured()) {
+        await appendReferralPayoutToSheet(payout).catch(err => {
+          console.error(`[Telegram] Failed to export referral payout to Sheets:`, err);
+        });
+      }
+    } else {
+      message += `\n_No referral attribution \\(winner was not referred or attribution expired\\)_`;
+    }
+
+    await ctx.reply(message, { parse_mode: 'MarkdownV2' });
   });
 
   // ============================================================================
