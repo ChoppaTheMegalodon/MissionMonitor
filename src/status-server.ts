@@ -316,6 +316,8 @@ export function startStatusServer(): void {
       '/payouts': 'payouts.html',
       '/payouts.html': 'payouts.html',
       '/payouts.js': 'payouts.js',
+      '/pythbaddies': 'pythbaddies.html',
+      '/pythbaddies.html': 'pythbaddies.html',
     };
 
     const fileName = fileMap[url];

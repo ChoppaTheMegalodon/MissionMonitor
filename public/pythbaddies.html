@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PythBaddies — Creator Payout Model</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;display:flex;flex-direction:column}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* Nav */
+nav{display:flex;gap:1rem;padding:0.5rem 2rem;border-bottom:1px solid #21262d;font-size:0.85rem;background:#0d1117}
+
+/* Header */
+.page-header{padding:2rem 2rem 1rem;max-width:1400px;width:100%;margin:0 auto}
+.page-header h1{font-size:1.75rem;color:#f0f6fc;margin-bottom:0.25rem}
+.page-header .subtitle{color:#8b949e;font-size:0.9rem;margin-bottom:1.25rem}
+
+/* Tabs */
+.tab-bar{display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem}
+.tab-btn{padding:0.4rem 1rem;border-radius:2rem;font-size:0.85rem;font-weight:600;cursor:pointer;border:1px solid #21262d;background:#161b22;color:#8b949e;transition:all 0.15s}
+.tab-btn:hover{color:#c9d1d9;border-color:#30363d}
+.tab-btn.active{background:#58a6ff;color:#0d1117;border-color:#58a6ff}
+
+/* Sub-tabs (models) */
+.model-tabs{display:flex;gap:0.35rem;margin-bottom:1.25rem}
+.model-btn{padding:0.3rem 0.85rem;border-radius:1rem;font-size:0.8rem;font-weight:600;cursor:pointer;border:1px solid #30363d;background:transparent;color:#8b949e;transition:all 0.15s}
+.model-btn:hover{color:#c9d1d9}
+.model-btn.active{background:#21262d;color:#f0f6fc;border-color:#58a6ff}
+
+/* Main */
+main{flex:1;padding:0 2rem 2rem;max-width:1400px;width:100%;margin:0 auto}
+
+/* Cards */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem;margin-bottom:1.5rem}
+.stat-card{background:#161b22;border:1px solid #21262d;border-radius:0.5rem;padding:1rem 1.25rem}
+.stat-card .label{font-size:0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.35rem}
+.stat-card .value{font-size:1.5rem;font-weight:700;color:#f0f6fc}
+.stat-card .value.green{color:#3fb950}
+.stat-card .value.yellow{color:#d29922}
+.stat-card .value.red{color:#f85149}
+.stat-card .value.blue{color:#58a6ff}
+
+/* Tables */
+.table-wrap{overflow-x:auto;margin-bottom:1.5rem;border:1px solid #21262d;border-radius:0.5rem}
+table{width:100%;border-collapse:collapse;font-size:0.85rem}
+thead th{background:#161b22;color:#8b949e;font-weight:600;text-transform:uppercase;font-size:0.7rem;letter-spacing:0.05em;padding:0.65rem 0.75rem;text-align:left;border-bottom:1px solid #21262d;position:sticky;top:0}
+tbody td{padding:0.55rem 0.75rem;border-bottom:1px solid #21262d}
+tbody tr:hover{background:#161b22}
+tbody tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:'SF Mono',Consolas,monospace;font-size:0.8rem}
+
+/* Callout boxes */
+.callout{border-radius:0.5rem;padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.9rem;line-height:1.5}
+.callout.amber{background:#3d2e00;border:1px solid #9e6a03;color:#d29922}
+.callout.green{background:#0d3820;border:1px solid #238636;color:#3fb950}
+.callout.blue{background:#0d2240;border:1px solid #1f6feb;color:#58a6ff}
+.callout.muted{background:#161b22;border:1px solid #21262d;color:#8b949e}
+.callout strong{color:#f0f6fc}
+
+/* Section visibility */
+.section{display:none}
+.section.active{display:block}
+.model-panel{display:none}
+.model-panel.active{display:block}
+
+/* Model description */
+.model-desc{margin-bottom:1rem;padding:0.75rem 1rem;background:#161b22;border:1px solid #21262d;border-radius:0.5rem}
+.model-desc h3{color:#f0f6fc;font-size:1rem;margin-bottom:0.35rem}
+.model-desc p{color:#8b949e;font-size:0.85rem;line-height:1.5}
+
+/* Runway bars */
+.runway-bar-wrap{margin-bottom:0.75rem}
+.runway-bar-label{display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem}
+.runway-bar-label span:first-child{color:#c9d1d9}
+.runway-bar-label span:last-child{color:#8b949e}
+.runway-bar-track{background:#21262d;border-radius:0.25rem;height:24px;overflow:hidden;position:relative}
+.runway-bar-fill{height:100%;border-radius:0.25rem;display:flex;align-items:center;padding-left:0.5rem;font-size:0.75rem;font-weight:600;color:#0d1117;transition:width 0.5s ease}
+
+/* Sensitivity table highlight */
+tbody tr.baseline{background:#161b22;font-weight:600}
+
+/* Section titles */
+.section-title{font-size:1.25rem;color:#f0f6fc;margin-bottom:1rem;padding-bottom:0.5rem;border-bottom:1px solid #21262d}
+.section-subtitle{font-size:1rem;color:#c9d1d9;margin-bottom:0.75rem;margin-top:1.25rem}
+
+/* Summary row in tables */
+.summary-row td{font-weight:700;border-top:2px solid #30363d;color:#f0f6fc}
+
+/* Tier tag */
+.tier-s{color:#d29922;font-weight:700}
+.tier-a{color:#58a6ff;font-weight:700}
+.tier-b{color:#8b949e;font-weight:600}
+
+/* Budget selector */
+.budget-note{font-size:0.9rem;color:#8b949e;margin-bottom:1.25rem}
+.budget-note strong{color:#f0f6fc}
+
+/* Footer */
+footer{text-align:center;padding:1rem;font-size:0.75rem;color:#484f58;border-top:1px solid #21262d}
+
+/* Print */
+@media print{
+  nav,footer,.tab-bar,.model-tabs{display:none!important}
+  .section{display:block!important;page-break-inside:avoid}
+  .model-panel{display:block!important;page-break-inside:avoid}
+  body{background:#fff;color:#000}
+  .page-header h1,.stat-card .value,.section-title,thead th,.callout strong{color:#000}
+  .stat-card,.model-desc,.callout,.table-wrap{border-color:#ccc}
+  .stat-card{background:#f9f9f9}
+  tbody tr:hover{background:transparent}
+  .callout.green,.callout.amber,.callout.blue{background:#f0f0f0;border-color:#999;color:#333}
+}
+
+@media(max-width:768px){
+  .card-grid{grid-template-columns:repeat(2,1fr)}
+  main,.page-header{padding-left:1rem;padding-right:1rem}
+  nav{padding:0.5rem 1rem}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/">Status</a>
+  <a href="/payouts">Payouts</a>
+  <a href="/pythbaddies"><strong>PythBaddies</strong></a>
+</nav>
+
+<div class="page-header">
+  <h1>PythBaddies — Creator Payout Model</h1>
+  <p class="subtitle">Data window: Jan 15 – Mar 15, 2026 | 10 pilot creators | 1,019 tweets | 3.7M impressions</p>
+  <div class="tab-bar">
+    <button class="tab-btn active" data-section="overview">Overview</button>
+    <button class="tab-btn" data-section="models1m">Models (1M)</button>
+    <button class="tab-btn" data-section="models3m">Models (3M)</button>
+    <button class="tab-btn" data-section="runway">Runway</button>
+    <button class="tab-btn" data-section="rawdata">Raw Data</button>
+  </div>
+</div>
+
+<main>
+
+<!-- ============================================================ -->
+<!-- OVERVIEW -->
+<!-- ============================================================ -->
+<div class="section active" id="overview">
+  <div class="card-grid">
+    <div class="stat-card"><div class="label">Total Creators</div><div class="value">10</div></div>
+    <div class="stat-card"><div class="label">Total Tweets</div><div class="value">1,019</div></div>
+    <div class="stat-card"><div class="label">Total Impressions</div><div class="value blue">3.7M</div></div>
+    <div class="stat-card"><div class="label">Avg Impr / Tweet</div><div class="value">3,671</div></div>
+    <div class="stat-card"><div class="label">Avg Engagement Rate</div><div class="value green">6.36%</div></div>
+    <div class="stat-card"><div class="label">Pyth Content Rate</div><div class="value red">1%</div></div>
+  </div>
+
+  <div class="callout blue">
+    <strong>Pilot Group — Twitter Only, For Now.</strong> The 10 creators below are ready-to-onboard profiles used as a base case for modelling. This pilot is scoped to Twitter/X only. The program will expand to TikTok, Instagram, YouTube, and LinkedIn as it matures — view thresholds and multipliers will be calibrated per platform at that stage.<br><br>
+    <strong>Growth via referrals, not central recruiting.</strong> Roster expansion will be driven by a referral system managed by the Community Council and existing community leaders — not top-down recruitment. All projections below are conservative baselines for the pilot group; surplus capacity is intentionally reserved for referral-driven growth.
+  </div>
+
+  <h2 class="section-title">Creator Roster (Pilot Group)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Creator</th>
+          <th>Telegram</th>
+          <th class="num">Followers</th>
+          <th class="num">Tweets</th>
+          <th class="num">Tweets/Day</th>
+          <th class="num">Impressions</th>
+          <th class="num">Avg Impr</th>
+          <th class="num">Eng Rate</th>
+          <th class="num">Pyth Tweets</th>
+          <th class="num">Pyth %</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td class="mono">@1Cilineth</td><td>Cilinn</td><td class="num">12,875</td><td class="num">182</td><td class="num">3.08</td><td class="num">1,515,000</td><td class="num">8,324</td><td class="num">3.94%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>2</td><td class="mono">@_kate_lv</td><td>KV</td><td class="num">5,461</td><td class="num">145</td><td class="num">2.46</td><td class="num">531,102</td><td class="num">3,663</td><td class="num">3.17%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>3</td><td class="mono">@nnevvesss</td><td>nnevvesss</td><td class="num">1,734</td><td class="num">53</td><td class="num">0.90</td><td class="num">435,965</td><td class="num">8,226</td><td class="num">2.48%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>4</td><td class="mono">@valerie_onchain</td><td>Valeria</td><td class="num">2,214</td><td class="num">197</td><td class="num">3.34</td><td class="num">370,082</td><td class="num">1,879</td><td class="num">6.91%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>5</td><td class="mono">@ice_bearcute</td><td>icebear</td><td class="num">3,611</td><td class="num">107</td><td class="num">1.81</td><td class="num">284,825</td><td class="num">2,662</td><td class="num">7.01%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>6</td><td class="mono">@grafinkavi</td><td>Vadym (gf)</td><td class="num">1,495</td><td class="num">71</td><td class="num">1.20</td><td class="num">244,773</td><td class="num">3,448</td><td class="num">4.28%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>7</td><td class="mono">@esochka</td><td>Alexandra</td><td class="num">1,231</td><td class="num">61</td><td class="num">1.03</td><td class="num">230,391</td><td class="num">3,777</td><td class="num">5.44%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>8</td><td class="mono">@alssoee</td><td>alssoe</td><td class="num">1,607</td><td class="num">70</td><td class="num">1.19</td><td class="num">74,646</td><td class="num">1,066</td><td class="num">8.11%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>9</td><td class="mono">@0xDinaMi</td><td>Dina</td><td class="num">793</td><td class="num">87</td><td class="num">1.47</td><td class="num">39,328</td><td class="num">452</td><td class="num">8.61%</td><td class="num">0</td><td class="num">0%</td></tr>
+        <tr><td>10</td><td class="mono">@pineappleeeee17</td><td>Pineappleeee</td><td class="num">250</td><td class="num">46</td><td class="num">0.78</td><td class="num">17,490</td><td class="num">380</td><td class="num">13.67%</td><td class="num">7</td><td class="num">15%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout amber">
+    <strong>Key Finding:</strong> Only 1 of 10 creators has posted Pyth content (7 tweets, 15% of output). The Pyth content multiplier will be the key lever once creators go live with on-brand content.
+  </div>
+
+  <div class="callout muted">
+    <strong>Expansion pipeline:</strong> 3 additional creators (F E R F E R, iuefiq, Inari) have not shared Twitter handles yet. Beyond the initial 13, new creators will be onboarded through a referral system run by the Community Council and community leaders. Budget surplus is earmarked for this referral-driven growth. Platform expansion (TikTok, Instagram, YouTube, LinkedIn) will follow once the Twitter pilot validates the payout model.
+  </div>
+
+  <div class="callout green">
+    <strong>Recommended: Model B (Small-Creator Adjusted) at 1M PYTH</strong><br>
+    Thresholds calibrated for PythBaddies follower sizes (most sub-10K). 1.5x Pyth content multiplier incentivizes on-brand content. Pure performance = no wasted spend on inactive creators. Conservative burn with the Twitter pilot group leaves significant surplus for referral-driven growth managed by the Community Council.<br><br>
+    <strong>Alternative: Model D (Tiered Ranks)</strong> if you want to lock in top performers with guaranteed income. Note: all models are baselined on the 10-creator Twitter pilot — surplus is reserved for referral expansion and future platform rollouts (TikTok, Instagram, YouTube, LinkedIn).
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODELS 1M -->
+<!-- ============================================================ -->
+<div class="section" id="models1m">
+  <h2 class="section-title">Payout Models — Budget: 1,000,000 PYTH / 6 Months</h2>
+  <p class="budget-note">Monthly pool: <strong>~166,667 PYTH/month</strong></p>
+
+  <div class="model-tabs">
+    <button class="model-btn active" data-model="1m-a">Model A</button>
+    <button class="model-btn" data-model="1m-b">Model B</button>
+    <button class="model-btn" data-model="1m-c">Model C</button>
+    <button class="model-btn" data-model="1m-d">Model D</button>
+  </div>
+
+  <!-- MODEL A - 1M -->
+  <div class="model-panel active" id="model-1m-a">
+    <div class="model-desc">
+      <h3>Model A — Clipping Spec Mirror</h3>
+      <p>Pure performance-based. Flat per-tweet payout tiers based on impression count. No Pyth content multiplier. Simple, transparent, zero base pay.</p>
+    </div>
+
+    <h3 class="section-subtitle">Impression Tiers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Impressions Per Tweet</th><th class="num">Payout (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td>500 – 5,000</td><td class="num">100</td></tr>
+          <tr><td>5,000 – 10,000</td><td class="num">250</td></tr>
+          <tr><td>10,000 – 50,000</td><td class="num">350</td></tr>
+          <tr><td>50,000 – 100,000</td><td class="num">1,000</td></tr>
+          <tr><td>100,000 – 500,000</td><td class="num">3,500</td></tr>
+          <tr><td>500,000 – 1,000,000</td><td class="num">10,000</td></tr>
+          <tr><td>1,000,000+</td><td class="num">20,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Est. Monthly Payout (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">20,625</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">10,225</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">9,075</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">6,475</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">5,675</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">4,375</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">4,175</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">2,300</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">950</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">500</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">64,375</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value green">64,375</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">386,250</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+613,750</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL B - 1M -->
+  <div class="model-panel" id="model-1m-b">
+    <div class="model-desc">
+      <h3>Model B — Small Creator Adjusted</h3>
+      <p>Performance-based with thresholds calibrated for sub-10K follower accounts. Lower floor, higher ceiling. Includes a <strong>+50% Pyth content multiplier</strong> to incentivize on-brand tweets.</p>
+    </div>
+
+    <h3 class="section-subtitle">Impression Tiers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Impressions Per Tweet</th><th class="num">Payout (PYTH)</th><th class="num">With Pyth 1.5x</th></tr></thead>
+        <tbody>
+          <tr><td>500 – 2,000</td><td class="num">75</td><td class="num">113</td></tr>
+          <tr><td>2,000 – 5,000</td><td class="num">150</td><td class="num">225</td></tr>
+          <tr><td>5,000 – 15,000</td><td class="num">400</td><td class="num">600</td></tr>
+          <tr><td>15,000 – 50,000</td><td class="num">1,200</td><td class="num">1,800</td></tr>
+          <tr><td>50,000 – 150,000</td><td class="num">4,000</td><td class="num">6,000</td></tr>
+          <tr><td>150,000 – 500,000</td><td class="num">12,000</td><td class="num">18,000</td></tr>
+          <tr><td>500,000+</td><td class="num">25,000</td><td class="num">37,500</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Est. Monthly Payout (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">35,800</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">12,588</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">10,513</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">10,000</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">7,038</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">6,263</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">5,875</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">2,375</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">963</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">431</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">91,846</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value green">91,846</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">551,076</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+448,924</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL C - 1M -->
+  <div class="model-panel" id="model-1m-c">
+    <div class="model-desc">
+      <h3>Model C — Base Retainer + Performance</h3>
+      <p>Every active creator gets a <strong>5,000 PYTH/month base</strong> (requires 3+ posts/week). Performance bonuses stack on top with a <strong>2x Pyth content multiplier</strong>. Provides income floor for smaller creators.</p>
+    </div>
+
+    <h3 class="section-subtitle">Performance Tiers (on top of base)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Impressions Per Tweet</th><th class="num">Payout (PYTH)</th><th class="num">With Pyth 2x</th></tr></thead>
+        <tbody>
+          <tr><td>500 – 2,000</td><td class="num">50</td><td class="num">100</td></tr>
+          <tr><td>2,000 – 5,000</td><td class="num">125</td><td class="num">250</td></tr>
+          <tr><td>5,000 – 15,000</td><td class="num">300</td><td class="num">600</td></tr>
+          <tr><td>15,000 – 50,000</td><td class="num">900</td><td class="num">1,800</td></tr>
+          <tr><td>50,000 – 150,000</td><td class="num">3,000</td><td class="num">6,000</td></tr>
+          <tr><td>150,000 – 500,000</td><td class="num">9,000</td><td class="num">18,000</td></tr>
+          <tr><td>500,000+</td><td class="num">18,000</td><td class="num">36,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Base</th><th class="num">Performance</th><th class="num">Total (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">5,000</td><td class="num">27,113</td><td class="num">32,113</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">5,000</td><td class="num">9,688</td><td class="num">14,688</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">5,000</td><td class="num">7,725</td><td class="num">12,725</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">5,000</td><td class="num">7,613</td><td class="num">12,613</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">5,000</td><td class="num">5,263</td><td class="num">10,263</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">5,000</td><td class="num">4,763</td><td class="num">9,763</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">5,000</td><td class="num">4,425</td><td class="num">9,425</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">5,000</td><td class="num">1,675</td><td class="num">6,675</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">5,000</td><td class="num">688</td><td class="num">5,688</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">5,000</td><td class="num">325</td><td class="num">5,325</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">50,000</td><td class="num">69,278</td><td class="num">119,278</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value yellow">119,278</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">715,668</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+284,332</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL D - 1M -->
+  <div class="model-panel" id="model-1m-d">
+    <div class="model-desc">
+      <h3>Model D — Tiered Creator Ranks</h3>
+      <p>Creators ranked into <span class="tier-s">S-tier</span> (top 3 by impressions: 20K/mo), <span class="tier-a">A-tier</span> (next 4: 10K/mo), and <span class="tier-b">B-tier</span> (remaining: 5K/mo). Plus a views bonus with <strong>1.5x Pyth content multiplier</strong>.</p>
+    </div>
+
+    <h3 class="section-subtitle">Views Bonus Tiers (on top of rank base)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Impressions Per Tweet</th><th class="num">Payout (PYTH)</th><th class="num">With Pyth 1.5x</th></tr></thead>
+        <tbody>
+          <tr><td>500 – 5,000</td><td class="num">50</td><td class="num">75</td></tr>
+          <tr><td>5,000 – 15,000</td><td class="num">200</td><td class="num">300</td></tr>
+          <tr><td>15,000 – 50,000</td><td class="num">600</td><td class="num">900</td></tr>
+          <tr><td>50,000 – 150,000</td><td class="num">2,000</td><td class="num">3,000</td></tr>
+          <tr><td>150,000 – 500,000</td><td class="num">6,000</td><td class="num">9,000</td></tr>
+          <tr><td>500,000+</td><td class="num">15,000</td><td class="num">22,500</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th>Rank</th><th class="num">Base</th><th class="num">Views Bonus</th><th class="num">Total (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">13,556</td><td class="num">33,556</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">7,294</td><td class="num">27,294</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">5,506</td><td class="num">25,506</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">5,363</td><td class="num">15,363</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">3,669</td><td class="num">13,669</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">3,006</td><td class="num">13,006</td></tr>
+          <tr><td class="mono">@esochka</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">2,644</td><td class="num">12,644</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">988</td><td class="num">5,988</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">363</td><td class="num">5,363</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">175</td><td class="num">5,175</td></tr>
+          <tr class="summary-row"><td colspan="2">Total</td><td class="num">115,000</td><td class="num">42,564</td><td class="num">160,213</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value red">160,213</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">961,278</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value yellow">+38,722</div></div>
+    </div>
+
+    <div class="callout amber">
+      <strong>Warning:</strong> Model D at 1M budget leaves only 38,722 PYTH surplus over 6 months. Any growth in creator output or viral tweets could push this into deficit. Consider the 3M budget for Model D.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODELS 3M -->
+<!-- ============================================================ -->
+<div class="section" id="models3m">
+  <h2 class="section-title">Payout Models — Budget: 3,000,000 PYTH / 6 Months</h2>
+  <p class="budget-note">Monthly pool: <strong>~500,000 PYTH/month</strong></p>
+
+  <div class="model-tabs">
+    <button class="model-btn active" data-model="3m-a">Model A</button>
+    <button class="model-btn" data-model="3m-b">Model B</button>
+    <button class="model-btn" data-model="3m-c">Model C</button>
+    <button class="model-btn" data-model="3m-d">Model D</button>
+  </div>
+
+  <!-- MODEL A - 3M -->
+  <div class="model-panel active" id="model-3m-a">
+    <div class="model-desc">
+      <h3>Model A — Clipping Spec Mirror (3M Budget)</h3>
+      <p>Same tier structure as 1M. At 3x scale, the surplus is massive — this model is extremely conservative at 3M.</p>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator) — 3x multiplied tiers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Est. Monthly Payout (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">61,875</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">30,675</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">27,225</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">19,425</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">17,025</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">13,125</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">12,525</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">6,900</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">2,850</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">1,500</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">193,125</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value green">193,125</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">1,158,750</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+1,841,250</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL B - 3M -->
+  <div class="model-panel" id="model-3m-b">
+    <div class="model-desc">
+      <h3>Model B — Small Creator Adjusted (3M Budget)</h3>
+      <p>3x tier payouts with the +50% Pyth multiplier. Comfortable runway with room for creator growth and program expansion.</p>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator) — 3x multiplied tiers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Est. Monthly Payout (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">107,400</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">37,764</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">31,539</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">30,000</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">21,114</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">18,789</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">17,625</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">7,125</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">2,889</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">1,293</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">275,538</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value green">275,538</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">1,653,228</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+1,346,772</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL C - 3M -->
+  <div class="model-panel" id="model-3m-c">
+    <div class="model-desc">
+      <h3>Model C — Base Retainer + Performance (3M Budget)</h3>
+      <p>5K base retained, performance tiers multiplied 3x with the 2x Pyth multiplier. Higher overall cost but still within budget.</p>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator) — 3x performance tiers</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th class="num">Base</th><th class="num">Performance (3x)</th><th class="num">Total (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="num">5,000</td><td class="num">81,339</td><td class="num">86,339</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="num">5,000</td><td class="num">29,064</td><td class="num">34,064</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="num">5,000</td><td class="num">23,175</td><td class="num">28,175</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="num">5,000</td><td class="num">22,839</td><td class="num">27,839</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="num">5,000</td><td class="num">15,789</td><td class="num">20,789</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="num">5,000</td><td class="num">14,289</td><td class="num">19,289</td></tr>
+          <tr><td class="mono">@esochka</td><td class="num">5,000</td><td class="num">13,275</td><td class="num">18,275</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="num">5,000</td><td class="num">5,025</td><td class="num">10,025</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="num">5,000</td><td class="num">2,064</td><td class="num">7,064</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="num">5,000</td><td class="num">975</td><td class="num">5,975</td></tr>
+          <tr class="summary-row"><td>Total</td><td class="num">50,000</td><td class="num">307,834</td><td class="num">357,828</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value yellow">357,828</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">2,146,968</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value green">+853,032</div></div>
+    </div>
+  </div>
+
+  <!-- MODEL D - 3M -->
+  <div class="model-panel" id="model-3m-d">
+    <div class="model-desc">
+      <h3>Model D — Tiered Creator Ranks (3M Budget)</h3>
+      <p>Rank bases retained (S/A/B), views bonus tiers multiplied 3x with the 1.5x Pyth multiplier. Highest spend model.</p>
+    </div>
+
+    <h3 class="section-subtitle">Monthly Projections (per creator) — 3x views bonus</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Creator</th><th>Rank</th><th class="num">Base</th><th class="num">Views Bonus (3x)</th><th class="num">Total (PYTH)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">@1Cilineth</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">40,668</td><td class="num">60,668</td></tr>
+          <tr><td class="mono">@_kate_lv</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">21,882</td><td class="num">41,882</td></tr>
+          <tr><td class="mono">@nnevvesss</td><td class="tier-s">S</td><td class="num">20,000</td><td class="num">16,518</td><td class="num">36,518</td></tr>
+          <tr><td class="mono">@valerie_onchain</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">16,089</td><td class="num">26,089</td></tr>
+          <tr><td class="mono">@ice_bearcute</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">11,007</td><td class="num">21,007</td></tr>
+          <tr><td class="mono">@grafinkavi</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">9,018</td><td class="num">19,018</td></tr>
+          <tr><td class="mono">@esochka</td><td class="tier-a">A</td><td class="num">10,000</td><td class="num">7,932</td><td class="num">17,932</td></tr>
+          <tr><td class="mono">@alssoee</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">2,964</td><td class="num">7,964</td></tr>
+          <tr><td class="mono">@0xDinaMi</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">1,089</td><td class="num">6,089</td></tr>
+          <tr><td class="mono">@pineappleeeee17</td><td class="tier-b">B</td><td class="num">5,000</td><td class="num">525</td><td class="num">5,525</td></tr>
+          <tr class="summary-row"><td colspan="2">Total</td><td class="num">115,000</td><td class="num">127,692</td><td class="num">480,638</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card"><div class="label">Monthly Burn</div><div class="value red">480,638</div></div>
+      <div class="stat-card"><div class="label">6-Month Burn</div><div class="value">2,883,828</div></div>
+      <div class="stat-card"><div class="label">Surplus</div><div class="value yellow">+116,172</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- RUNWAY -->
+<!-- ============================================================ -->
+<div class="section" id="runway">
+  <h2 class="section-title">Comparison and Runway Analysis</h2>
+
+  <h3 class="section-subtitle">Model Comparison — 1M PYTH Budget</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Metric</th><th class="num">Model A</th><th class="num">Model B</th><th class="num">Model C</th><th class="num">Model D</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Monthly Burn</td><td class="num">64,375</td><td class="num">91,846</td><td class="num">119,278</td><td class="num">160,213</td></tr>
+        <tr><td>6-Month Burn</td><td class="num">386,250</td><td class="num">551,076</td><td class="num">715,668</td><td class="num">961,278</td></tr>
+        <tr><td>Surplus / Deficit</td><td class="num" style="color:#3fb950">+613,750</td><td class="num" style="color:#3fb950">+448,924</td><td class="num" style="color:#3fb950">+284,332</td><td class="num" style="color:#d29922">+38,722</td></tr>
+        <tr><td>Runway (months)</td><td class="num">15.5</td><td class="num">10.9</td><td class="num">8.4</td><td class="num">6.2</td></tr>
+        <tr><td>Highest Earner</td><td class="num">20,625</td><td class="num">35,800</td><td class="num">32,113</td><td class="num">33,556</td></tr>
+        <tr><td>Lowest Earner</td><td class="num">500</td><td class="num">431</td><td class="num">5,325</td><td class="num">5,175</td></tr>
+        <tr><td>Pyth Multiplier</td><td>None</td><td>1.5x</td><td>2x</td><td>1.5x</td></tr>
+        <tr><td>Base Retainer</td><td>No</td><td>No</td><td>5,000/mo</td><td>5K–20K/mo</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="section-subtitle">Model Comparison — 3M PYTH Budget</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Metric</th><th class="num">Model A</th><th class="num">Model B</th><th class="num">Model C</th><th class="num">Model D</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Monthly Burn</td><td class="num">193,125</td><td class="num">275,538</td><td class="num">357,828</td><td class="num">480,638</td></tr>
+        <tr><td>6-Month Burn</td><td class="num">1,158,750</td><td class="num">1,653,228</td><td class="num">2,146,968</td><td class="num">2,883,828</td></tr>
+        <tr><td>Surplus / Deficit</td><td class="num" style="color:#3fb950">+1,841,250</td><td class="num" style="color:#3fb950">+1,346,772</td><td class="num" style="color:#3fb950">+853,032</td><td class="num" style="color:#d29922">+116,172</td></tr>
+        <tr><td>Runway (months)</td><td class="num">15.5</td><td class="num">10.9</td><td class="num">8.4</td><td class="num">6.2</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="section-subtitle">Runway — 1M PYTH Budget (months at current burn)</h3>
+  <div style="margin-bottom:2rem">
+    <div class="runway-bar-wrap">
+      <div class="runway-bar-label"><span>Model A — Clipping Spec</span><span>15.5 months</span></div>
+      <div class="runway-bar-track"><div class="runway-bar-fill" style="width:100%;background:linear-gradient(90deg,#238636,#3fb950)">15.5 mo</div></div>
+    </div>
+    <div class="runway-bar-wrap">
+      <div class="runway-bar-label"><span>Model B — Small Creator (recommended)</span><span>10.9 months</span></div>
+      <div class="runway-bar-track"><div class="runway-bar-fill" style="width:70%;background:linear-gradient(90deg,#238636,#3fb950)">10.9 mo</div></div>
+    </div>
+    <div class="runway-bar-wrap">
+      <div class="runway-bar-label"><span>Model C — Base + Performance</span><span>8.4 months</span></div>
+      <div class="runway-bar-track"><div class="runway-bar-fill" style="width:54%;background:linear-gradient(90deg,#9e6a03,#d29922)">8.4 mo</div></div>
+    </div>
+    <div class="runway-bar-wrap">
+      <div class="runway-bar-label"><span>Model D — Tiered Ranks</span><span>6.2 months</span></div>
+      <div class="runway-bar-track"><div class="runway-bar-fill" style="width:40%;background:linear-gradient(90deg,#da3633,#f85149)">6.2 mo</div></div>
+    </div>
+  </div>
+
+  <h3 class="section-subtitle">Sensitivity Analysis — Model B at 1M Budget</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Scenario</th><th class="num">Monthly Burn</th><th class="num">6-Month Cost</th><th class="num">Surplus</th><th class="num">Runway (mo)</th></tr>
+      </thead>
+      <tbody>
+        <tr class="baseline"><td>Baseline (current output)</td><td class="num">91,846</td><td class="num">551,076</td><td class="num" style="color:#3fb950">+448,924</td><td class="num">10.9</td></tr>
+        <tr><td>+20% views growth</td><td class="num">110,215</td><td class="num">661,290</td><td class="num" style="color:#3fb950">+338,710</td><td class="num">9.1</td></tr>
+        <tr><td>+50% views growth</td><td class="num">137,769</td><td class="num">826,614</td><td class="num" style="color:#d29922">+173,386</td><td class="num">7.3</td></tr>
+        <tr><td>-30% views decline</td><td class="num">64,292</td><td class="num">385,752</td><td class="num" style="color:#3fb950">+614,248</td><td class="num">15.6</td></tr>
+        <tr><td>3 creators churn (bottom 3)</td><td class="num">88,077</td><td class="num">528,462</td><td class="num" style="color:#3fb950">+471,538</td><td class="num">11.4</td></tr>
+        <tr><td>Double creators (20 total)</td><td class="num">183,692</td><td class="num">1,102,152</td><td class="num" style="color:#f85149">-102,152</td><td class="num">5.4</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout blue">
+    <strong>Key Insight:</strong> Model B at 1M can absorb a 50% views increase and still stay in surplus with the Twitter pilot group alone. As referrals from Community Council and community leaders bring in new creators — and the program expands to TikTok, Instagram, YouTube, and LinkedIn — the 1M budget tightens. This is the key argument for the 3M budget, which comfortably supports 20+ creators across multiple platforms.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- RAW DATA -->
+<!-- ============================================================ -->
+<div class="section" id="rawdata">
+  <h2 class="section-title">Raw Creator Data</h2>
+  <p style="color:#8b949e;margin-bottom:1.25rem;font-size:0.9rem">Per-creator performance breakdown from Jan 15 – Mar 15, 2026 data window.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Creator</th>
+          <th class="num">Followers</th>
+          <th class="num">Tweets</th>
+          <th class="num">Tweets/Day</th>
+          <th class="num">Total Impressions</th>
+          <th class="num">Avg Impr/Tweet</th>
+          <th class="num">Engagement Rate</th>
+          <th class="num">Pyth Tweets</th>
+          <th class="num">Pyth %</th>
+          <th class="num">Impr Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">@1Cilineth</td>
+          <td class="num">12,875</td>
+          <td class="num">182</td>
+          <td class="num">3.08</td>
+          <td class="num">1,515,000</td>
+          <td class="num">8,324</td>
+          <td class="num">3.94%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num" style="color:#3fb950">40.6%</td>
+        </tr>
+        <tr>
+          <td class="mono">@_kate_lv</td>
+          <td class="num">5,461</td>
+          <td class="num">145</td>
+          <td class="num">2.46</td>
+          <td class="num">531,102</td>
+          <td class="num">3,663</td>
+          <td class="num">3.17%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">14.2%</td>
+        </tr>
+        <tr>
+          <td class="mono">@nnevvesss</td>
+          <td class="num">1,734</td>
+          <td class="num">53</td>
+          <td class="num">0.90</td>
+          <td class="num">435,965</td>
+          <td class="num">8,226</td>
+          <td class="num">2.48%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">11.7%</td>
+        </tr>
+        <tr>
+          <td class="mono">@valerie_onchain</td>
+          <td class="num">2,214</td>
+          <td class="num">197</td>
+          <td class="num">3.34</td>
+          <td class="num">370,082</td>
+          <td class="num">1,879</td>
+          <td class="num">6.91%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">9.9%</td>
+        </tr>
+        <tr>
+          <td class="mono">@ice_bearcute</td>
+          <td class="num">3,611</td>
+          <td class="num">107</td>
+          <td class="num">1.81</td>
+          <td class="num">284,825</td>
+          <td class="num">2,662</td>
+          <td class="num">7.01%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">7.6%</td>
+        </tr>
+        <tr>
+          <td class="mono">@grafinkavi</td>
+          <td class="num">1,495</td>
+          <td class="num">71</td>
+          <td class="num">1.20</td>
+          <td class="num">244,773</td>
+          <td class="num">3,448</td>
+          <td class="num">4.28%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">6.6%</td>
+        </tr>
+        <tr>
+          <td class="mono">@esochka</td>
+          <td class="num">1,231</td>
+          <td class="num">61</td>
+          <td class="num">1.03</td>
+          <td class="num">230,391</td>
+          <td class="num">3,777</td>
+          <td class="num">5.44%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">6.2%</td>
+        </tr>
+        <tr>
+          <td class="mono">@alssoee</td>
+          <td class="num">1,607</td>
+          <td class="num">70</td>
+          <td class="num">1.19</td>
+          <td class="num">74,646</td>
+          <td class="num">1,066</td>
+          <td class="num">8.11%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">2.0%</td>
+        </tr>
+        <tr>
+          <td class="mono">@0xDinaMi</td>
+          <td class="num">793</td>
+          <td class="num">87</td>
+          <td class="num">1.47</td>
+          <td class="num">39,328</td>
+          <td class="num">452</td>
+          <td class="num">8.61%</td>
+          <td class="num">0</td>
+          <td class="num">0%</td>
+          <td class="num">1.1%</td>
+        </tr>
+        <tr>
+          <td class="mono">@pineappleeeee17</td>
+          <td class="num">250</td>
+          <td class="num">46</td>
+          <td class="num">0.78</td>
+          <td class="num">17,490</td>
+          <td class="num">380</td>
+          <td class="num">13.67%</td>
+          <td class="num">7</td>
+          <td class="num" style="color:#3fb950">15%</td>
+          <td class="num">0.5%</td>
+        </tr>
+        <tr class="summary-row">
+          <td>Totals / Averages</td>
+          <td class="num">3,127 avg</td>
+          <td class="num">1,019</td>
+          <td class="num">1.73 avg</td>
+          <td class="num">3,743,602</td>
+          <td class="num">3,671 avg</td>
+          <td class="num">6.36% avg</td>
+          <td class="num">7</td>
+          <td class="num">1%</td>
+          <td class="num">100%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="section-subtitle">Impression Distribution</h3>
+  <div class="callout muted">
+    <strong>Concentration risk:</strong> @1Cilineth accounts for 40.6% of all impressions. The top 3 creators drive 66.5% of total output. Any churn from the top performers would significantly impact program value.
+  </div>
+
+  <h3 class="section-subtitle">Engagement vs. Reach Correlation</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Creator</th><th class="num">Followers</th><th class="num">Avg Impr/Tweet</th><th class="num">Impr/Follower Ratio</th><th class="num">Engagement Rate</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">@nnevvesss</td><td class="num">1,734</td><td class="num">8,226</td><td class="num" style="color:#3fb950">4.75x</td><td class="num">2.48%</td><td style="color:#3fb950">Viral reach — punches way above weight</td></tr>
+        <tr><td class="mono">@pineappleeeee17</td><td class="num">250</td><td class="num">380</td><td class="num" style="color:#3fb950">1.52x</td><td class="num" style="color:#3fb950">13.67%</td><td style="color:#3fb950">Highest engagement — niche loyal audience</td></tr>
+        <tr><td class="mono">@1Cilineth</td><td class="num">12,875</td><td class="num">8,324</td><td class="num">0.65x</td><td class="num">3.94%</td><td>Volume play — consistent high output</td></tr>
+        <tr><td class="mono">@valerie_onchain</td><td class="num">2,214</td><td class="num">1,879</td><td class="num">0.85x</td><td class="num" style="color:#3fb950">6.91%</td><td>Strong engagement, solid reach</td></tr>
+        <tr><td class="mono">@0xDinaMi</td><td class="num">793</td><td class="num">452</td><td class="num">0.57x</td><td class="num" style="color:#3fb950">8.61%</td><td style="color:#d29922">High engagement, low reach — needs growth</td></tr>
+        <tr><td class="mono">@alssoee</td><td class="num">1,607</td><td class="num">1,066</td><td class="num">0.66x</td><td class="num" style="color:#3fb950">8.11%</td><td style="color:#d29922">Engaged community, limited distribution</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  PythBaddies Creator Payout Analysis — Data window Jan 15 – Mar 15, 2026 — Generated for Pyth Network internal review
+</footer>
+
+<script>
+// Tab switching (main sections)
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var target = btn.getAttribute('data-section');
+    document.querySelectorAll('.section').forEach(function(s) { s.classList.remove('active'); });
+    document.getElementById(target).classList.add('active');
+  });
+});
+
+// Model sub-tab switching
+document.querySelectorAll('.model-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var parent = btn.closest('.section');
+    parent.querySelectorAll('.model-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var target = btn.getAttribute('data-model');
+    parent.querySelectorAll('.model-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.getElementById('model-' + target).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
