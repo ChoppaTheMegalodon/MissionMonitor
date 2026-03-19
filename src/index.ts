@@ -11,7 +11,7 @@ import { startStatusServer, stopStatusServer, setDiscordClient, setTelegramRunni
 
 console.log('='.repeat(50));
 console.log('  Mission Control Bot');
-console.log('  Version: 2.0.0');
+console.log('  Version: 3.0.0');
 console.log('='.repeat(50));
 console.log('');
 console.log('[Main] DEBUG: Starting initialization...');

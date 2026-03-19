@@ -76,7 +76,7 @@ export function loadConfig(): BotConfig {
 
     // Claude API (optional - needed for /mission and /tweets)
     anthropicApiKey: optionalEnv('ANTHROPIC_API_KEY') || undefined,
-    claudeModel: optionalEnv('CLAUDE_MODEL', 'claude-sonnet-4-20250514'),
+    claudeModel: optionalEnv('CLAUDE_MODEL', 'claude-sonnet-4-6'),
 
     // Notion (optional - needed for /mission and /tweets)
     notionToken: optionalEnv('NOTION_TOKEN') || undefined,

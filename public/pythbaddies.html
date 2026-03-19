@@ -823,7 +823,7 @@ footer{text-align:center;padding:1rem;font-size:0.75rem;color:#484f58;border-top
 
   <h3 class="section-subtitle">Impression Distribution</h3>
   <div class="callout muted">
-    <strong>Concentration risk:</strong> @1Cilineth accounts for 40.6% of all impressions. The top 3 creators drive 66.5% of total output. Any churn from the top performers would significantly impact program value.
+    <strong>Concentration risk:</strong> <a href="https://x.com/1Cilineth" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">@1Cilineth</a> accounts for 40.6% of all impressions. The top 3 creators drive 66.5% of total output. Any churn from the top performers would significantly impact program value.
   </div>
 
   <h3 class="section-subtitle">Engagement vs. Reach Correlation</h3>
@@ -872,6 +872,15 @@ document.querySelectorAll('.model-btn').forEach(function(btn) {
     parent.querySelectorAll('.model-panel').forEach(function(p) { p.classList.remove('active'); });
     document.getElementById('model-' + target).classList.add('active');
   });
+});
+
+// Make all @handle references clickable Twitter links
+document.querySelectorAll('td.mono').forEach(function(td) {
+  var text = td.textContent.trim();
+  if (text.charAt(0) === '@') {
+    var handle = text.substring(1);
+    td.innerHTML = '<a href="https://x.com/' + handle + '" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none">' + text + '</a>';
+  }
 });
 </script>
 </body>

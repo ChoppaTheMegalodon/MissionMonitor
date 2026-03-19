@@ -11,6 +11,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as url from 'url';
 import { Client } from 'discord.js';
 import { config } from './config';
 import { isSheetsConfigured } from './sheets';
@@ -32,7 +33,7 @@ import {
 const PORT = parseInt(process.env.STATUS_PORT || '3000', 10);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const START_TIME = Date.now();
-const VERSION = '2.0.0';
+const VERSION = '3.0.0';
 
 // References set at boot from index.ts
 let discordClientRef: Client | null = null;
@@ -306,13 +307,44 @@ export function startStatusServer(): void {
     }
 
     // -----------------------------------------------------------------------
+    // Proxy engagement API (/eng/api/* → localhost:3001/api/*)
+    // -----------------------------------------------------------------------
+    if (url.startsWith('/eng/api/')) {
+      const engPath = url.replace('/eng/api/', '/api/');
+      const engUrl = req.url?.replace('/eng/api/', '/api/') || engPath;
+      const proxyOpts: http.RequestOptions = {
+        hostname: '127.0.0.1',
+        port: parseInt(process.env.ENGAGEMENT_PORT || '3001', 10),
+        path: engUrl,
+        method: req.method,
+        headers: { ...req.headers, host: '127.0.0.1:3001' },
+      };
+
+      const proxyReq = http.request(proxyOpts, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      });
+
+      proxyReq.on('error', () => {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Engagement service unavailable' }));
+      });
+
+      req.pipe(proxyReq, { end: true });
+      return;
+    }
+
+    // -----------------------------------------------------------------------
     // Static dashboard files
     // -----------------------------------------------------------------------
     const fileMap: Record<string, string> = {
       '/': 'index.html',
       '/index.html': 'index.html',
+      '/hub': 'hub.html',
+      '/hub.html': 'hub.html',
       '/style.css': 'style.css',
       '/dashboard.js': 'dashboard.js',
+      '/hub.js': 'hub.js',
       '/payouts': 'payouts.html',
       '/payouts.html': 'payouts.html',
       '/payouts.js': 'payouts.js',
