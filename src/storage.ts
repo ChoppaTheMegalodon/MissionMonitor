@@ -962,3 +962,60 @@ export function markPayoutsExported(ids: string[]): void {
   saveReferrals(data);
   console.log(`[Storage] Marked ${ids.length} referral payouts as exported`);
 }
+
+/**
+ * Reset onboarding data for a specific user (keeps attribution, clears onboarding fields)
+ */
+export function resetOnboarding(telegramId: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No attribution record found for this user.' };
+  }
+
+  delete attribution.twitterHandle;
+  delete attribution.ethWallet;
+  delete attribution.solanaWallet;
+  delete attribution.agreedToTerms;
+  delete attribution.agreedAt;
+  delete attribution.onboardingComplete;
+  saveReferrals(data);
+  console.log(`[Storage] Onboarding reset for ${telegramId}`);
+  return { success: true };
+}
+
+/**
+ * Remove a specific attribution record entirely
+ */
+export function removeAttribution(telegramId: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const idx = data.attributions.findIndex(a => a.recruitId === telegramId);
+  if (idx < 0) {
+    return { success: false, error: 'No attribution record found.' };
+  }
+
+  // Also remove any payouts for this recruit
+  data.payouts = data.payouts.filter(p => p.recruitId !== telegramId);
+  data.attributions.splice(idx, 1);
+  saveReferrals(data);
+  console.log(`[Storage] Attribution removed for ${telegramId}`);
+  return { success: true };
+}
+
+/**
+ * Purge ALL referral data (codes, attributions, payouts). Returns backup of data before purge.
+ */
+export function purgeAllReferrals(): ReferralsData {
+  const backup = loadReferrals();
+  const empty: ReferralsData = { referrals: [], attributions: [], payouts: [] };
+  saveReferrals(empty);
+  console.log(`[Storage] All referral data purged (${backup.referrals.length} codes, ${backup.attributions.length} attributions, ${backup.payouts.length} payouts)`);
+  return backup;
+}
+
+/**
+ * Get raw referrals data (for backup/inspection)
+ */
+export function getRawReferralsData(): ReferralsData {
+  return loadReferrals();
+}

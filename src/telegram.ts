@@ -40,6 +40,10 @@ import {
   hasAgreedToTerms,
   isOnboardingComplete,
   getAttributionByRecruit,
+  resetOnboarding,
+  removeAttribution,
+  purgeAllReferrals,
+  getRawReferralsData,
 } from './storage';
 import {
   handleTemplateMissionCommand,
@@ -1448,6 +1452,116 @@ export async function startTelegramBot(): Promise<void> {
         { parse_mode: 'MarkdownV2' }
       );
     }
+  });
+
+  // ============================================================================
+  // /reset-onboarding Command — Reset a user's onboarding (admin)
+  // ============================================================================
+  telegramBot.command('reset_onboarding', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const targetId = (ctx.match as string)?.trim();
+    if (!targetId) {
+      await ctx.reply(
+        '*Usage:* /reset\\_onboarding \\<telegram\\_user\\_id\\>\n\n' +
+        'Clears their terms agreement, Twitter, SOL, and ETH data\\. Keeps the attribution link intact so they can re\\-onboard\\.',
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    const result = resetOnboarding(targetId);
+    onboardingState.delete(targetId);
+    if (result.success) {
+      await ctx.reply(`✅ Onboarding reset for user \`${escapeMarkdown(targetId)}\`\\. They will be prompted to re\\-onboard on next /start\\.`, { parse_mode: 'MarkdownV2' });
+    } else {
+      await ctx.reply(`⚠️ ${escapeMarkdown(result.error || 'Unknown error')}`, { parse_mode: 'MarkdownV2' });
+    }
+  });
+
+  // ============================================================================
+  // /remove-attribution Command — Fully remove a user's referral record (admin)
+  // ============================================================================
+  telegramBot.command('remove_attribution', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const targetId = (ctx.match as string)?.trim();
+    if (!targetId) {
+      await ctx.reply(
+        '*Usage:* /remove\\_attribution \\<telegram\\_user\\_id\\>\n\n' +
+        'Completely removes attribution record and any associated payouts\\. User can be re\\-referred via a new link\\.',
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    const result = removeAttribution(targetId);
+    onboardingState.delete(targetId);
+    if (result.success) {
+      await ctx.reply(`✅ Attribution fully removed for \`${escapeMarkdown(targetId)}\`\\.`, { parse_mode: 'MarkdownV2' });
+    } else {
+      await ctx.reply(`⚠️ ${escapeMarkdown(result.error || 'Unknown error')}`, { parse_mode: 'MarkdownV2' });
+    }
+  });
+
+  // ============================================================================
+  // /purge-referrals Command — Nuclear option: wipe ALL referral data (admin)
+  // ============================================================================
+  telegramBot.command('purge_referrals', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const confirm = (ctx.match as string)?.trim();
+    if (confirm !== 'CONFIRM') {
+      await ctx.reply(
+        '⚠️ *This will delete ALL referral codes, attributions, and payouts\\.*\n\n' +
+        'To proceed, type: /purge\\_referrals CONFIRM\n\n' +
+        '_A backup will be saved to data/referrals\\-backup\\-\\<timestamp\\>\\.json before purging\\._',
+        { parse_mode: 'MarkdownV2' }
+      );
+      return;
+    }
+
+    // Save backup before purging
+    const backup = getRawReferralsData();
+    const fs = await import('fs');
+    const path = await import('path');
+    const backupPath = path.join(__dirname, '..', 'data', `referrals-backup-${Date.now()}.json`);
+    fs.writeFileSync(backupPath, JSON.stringify(backup, null, 2), 'utf-8');
+
+    const purged = purgeAllReferrals();
+    onboardingState.clear();
+
+    await ctx.reply(
+      `🗑️ *All referral data purged\\.*\n\n` +
+      `Removed: ${purged.referrals.length} codes, ${purged.attributions.length} attributions, ${purged.payouts.length} payouts\n\n` +
+      `Backup saved to: \`${escapeMarkdown(path.basename(backupPath))}\``,
+      { parse_mode: 'MarkdownV2' }
+    );
+  });
+
+  // ============================================================================
+  // /referral-data Command — Inspect current referral data (admin)
+  // ============================================================================
+  telegramBot.command('referral_data', async (ctx) => {
+    if (!isPrivateChat(ctx)) return;
+
+    const data = getRawReferralsData();
+    let message = `📊 *Referral System Data*\n\n` +
+      `*Codes:* ${data.referrals.length}\n` +
+      `*Attributions:* ${data.attributions.length}\n` +
+      `*Payouts:* ${data.payouts.length}\n`;
+
+    if (data.attributions.length > 0) {
+      message += `\n*Recruits:*\n`;
+      for (const a of data.attributions) {
+        const status = a.onboardingComplete ? '✅' : a.agreedToTerms ? '⏳' : '❌';
+        message += `${status} ${escapeMarkdown(a.recruitUsername)} \\(\`${a.recruitId}\`\\)`;
+        if (a.twitterHandle) message += ` — @${escapeMarkdown(a.twitterHandle)}`;
+        message += `\n`;
+      }
+    }
+
+    await sendLongMessage(ctx, message);
   });
 
   // ============================================================================
