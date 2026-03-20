@@ -89,6 +89,11 @@ export interface ReferralAttribution {
   expiresAt: string;         // registeredAt + 90 days
   discordUserId?: string;    // Linked via /link command
   solanaWallet?: string;     // SOL wallet for payouts
+  ethWallet?: string;        // ETH wallet for payouts
+  twitterHandle?: string;    // Twitter/X handle (without @)
+  agreedToTerms?: boolean;   // Privacy policy agreement
+  agreedAt?: string;         // When they agreed
+  onboardingComplete?: boolean; // All data collected
 }
 
 export interface ReferralPayout {
@@ -733,6 +738,99 @@ export function setSolanaWallet(telegramId: string, wallet: string): { success: 
   saveReferrals(data);
   console.log(`[Storage] Solana wallet set: Telegram ${telegramId} → ${wallet}`);
   return { success: true };
+}
+
+/**
+ * Set ETH wallet address for a recruit
+ */
+export function setEthWallet(telegramId: string, wallet: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found for your account.' };
+  }
+
+  attribution.ethWallet = wallet;
+  saveReferrals(data);
+  console.log(`[Storage] ETH wallet set: Telegram ${telegramId} → ${wallet}`);
+  return { success: true };
+}
+
+/**
+ * Set Twitter handle for a recruit
+ */
+export function setTwitterHandle(telegramId: string, handle: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found for your account.' };
+  }
+
+  attribution.twitterHandle = handle.replace(/^@/, '');
+  saveReferrals(data);
+  console.log(`[Storage] Twitter handle set: Telegram ${telegramId} → @${attribution.twitterHandle}`);
+  return { success: true };
+}
+
+/**
+ * Mark user as agreed to terms
+ */
+export function markAgreedToTerms(telegramId: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found.' };
+  }
+
+  attribution.agreedToTerms = true;
+  attribution.agreedAt = new Date().toISOString();
+  saveReferrals(data);
+  console.log(`[Storage] Terms agreed: Telegram ${telegramId}`);
+  return { success: true };
+}
+
+/**
+ * Mark onboarding as complete
+ */
+export function markOnboardingComplete(telegramId: string): { success: boolean; error?: string } {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) {
+    return { success: false, error: 'No referral attribution found.' };
+  }
+
+  attribution.onboardingComplete = true;
+  saveReferrals(data);
+  console.log(`[Storage] Onboarding complete: Telegram ${telegramId}`);
+  return { success: true };
+}
+
+/**
+ * Check if a user has completed onboarding (agreed to terms + provided all data)
+ */
+export function isOnboardingComplete(telegramId: string): boolean {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) return false;
+  return attribution.onboardingComplete === true;
+}
+
+/**
+ * Check if a user has agreed to terms
+ */
+export function hasAgreedToTerms(telegramId: string): boolean {
+  const data = loadReferrals();
+  const attribution = data.attributions.find(a => a.recruitId === telegramId);
+  if (!attribution) return false;
+  return attribution.agreedToTerms === true;
+}
+
+/**
+ * Get all attributions that haven't completed onboarding
+ */
+export function getIncompleteOnboardings(): ReferralAttribution[] {
+  const data = loadReferrals();
+  return data.attributions.filter(a => !a.onboardingComplete);
 }
 
 /**

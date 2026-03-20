@@ -39,6 +39,9 @@ export interface BotConfig {
   // Referral system
   referralPayoutSplit: number;
   referralAttributionDays: number;
+
+  // Privacy policy
+  privacyPolicyUrl: string;
 }
 
 function requireEnv(key: string): string {
@@ -90,6 +93,9 @@ export function loadConfig(): BotConfig {
     // Referral system
     referralPayoutSplit: parseFloat(optionalEnv('REFERRAL_PAYOUT_SPLIT', '0.10')),
     referralAttributionDays: parseInt(optionalEnv('REFERRAL_ATTRIBUTION_DAYS', '90'), 10),
+
+    // Privacy policy
+    privacyPolicyUrl: optionalEnv('PRIVACY_POLICY_URL', ''),
   };
 }
 

@@ -9,7 +9,7 @@
  */
 
 import * as https from 'https';
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import { config } from './config';
 
 // Force IPv4 — IPv6 is broken on this server and node-fetch tries it first
@@ -33,6 +33,13 @@ import {
   recordReferralPayout,
   setSolanaWallet,
   setReferrerSolanaWallet,
+  setEthWallet,
+  setTwitterHandle,
+  markAgreedToTerms,
+  markOnboardingComplete,
+  hasAgreedToTerms,
+  isOnboardingComplete,
+  getAttributionByRecruit,
 } from './storage';
 import {
   handleTemplateMissionCommand,
@@ -70,6 +77,61 @@ function isPrivateChat(ctx: Context): boolean {
  */
 function escapeMarkdown(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+}
+
+// Privacy policy URL (configurable via config.privacyPolicyUrl env var)
+
+// Onboarding conversation state: tracks which step each user is on
+// 'twitter' → 'sol' → 'eth' → done
+const onboardingState = new Map<string, 'twitter' | 'sol' | 'eth'>();
+
+/**
+ * Send the terms agreement message with inline button
+ */
+async function sendTermsAgreement(ctx: Context, userId: string): Promise<void> {
+  const keyboard = new InlineKeyboard()
+    .text('✅ I have read and agree to the Privacy Policy', `agree_terms:${userId}`);
+
+  let message = '📋 *Privacy Policy Agreement*\n\n' +
+    'Before you can participate in the PythBaddies creator program, you must agree to our Privacy Policy\\.\n\n';
+
+  if (config.privacyPolicyUrl) {
+    message += `📄 [Read the Privacy Policy](${escapeMarkdown(config.privacyPolicyUrl)})\n\n`;
+  }
+
+  message += '_Tap the button below to confirm you agree\\._';
+
+  await ctx.reply(message, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+/**
+ * Prompt for the next onboarding step
+ */
+async function promptOnboardingStep(ctx: Context, userId: string, step: 'twitter' | 'sol' | 'eth'): Promise<void> {
+  onboardingState.set(userId, step);
+
+  if (step === 'twitter') {
+    await ctx.reply(
+      '🐦 *Step 1/3 — Twitter Handle*\n\n' +
+      'Please send your Twitter/X handle \\(e\\.g\\. `@yourhandle` or `yourhandle`\\)',
+      { parse_mode: 'MarkdownV2' }
+    );
+  } else if (step === 'sol') {
+    await ctx.reply(
+      '☀️ *Step 2/3 — Solana Wallet*\n\n' +
+      'Please send your Solana wallet address for PYTH payouts\\.',
+      { parse_mode: 'MarkdownV2' }
+    );
+  } else if (step === 'eth') {
+    await ctx.reply(
+      '💎 *Step 3/3 — Ethereum Wallet*\n\n' +
+      'Please send your Ethereum \\(EVM\\) wallet address\\.',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
 }
 
 /**
@@ -1155,22 +1217,21 @@ export async function startTelegramBot(): Promise<void> {
   });
 
   // ============================================================================
-  // /start Command — handles referral deep links
+  // /start Command — handles referral deep links + onboarding gate
   // ============================================================================
   telegramBot.command('start', async (ctx) => {
     console.log(`[Telegram] DEBUG: /start command received from chat ${ctx.chat?.id}`);
     const payload = (ctx.match as string)?.trim();
+    const userId = ctx.from?.id?.toString();
+    const username = ctx.from?.username || ctx.from?.first_name || 'unknown';
+
+    if (!userId) {
+      await ctx.reply('Could not identify your account\\. Please try again\\.', { parse_mode: 'MarkdownV2' });
+      return;
+    }
 
     // Check if payload is a referral code (e.g. PYTH-R3NX)
     if (payload && /^[A-Z]+-[A-Z0-9]{4}$/i.test(payload)) {
-      const userId = ctx.from?.id?.toString();
-      const username = ctx.from?.username || ctx.from?.first_name || 'unknown';
-
-      if (!userId) {
-        await ctx.reply('Could not identify your account\\. Please try again\\.', { parse_mode: 'MarkdownV2' });
-        return;
-      }
-
       const result = registerReferralAttribution(userId, username, payload, config.referralAttributionDays);
 
       if (result.success) {
@@ -1179,26 +1240,62 @@ export async function startTelegramBot(): Promise<void> {
           `🎯 *Welcome to Pythian Propaganda\\!*\n\n` +
           `You were referred by @${escapeMarkdown(referral?.referrerUsername || 'a community member')}\\.\n\n` +
           `Submit to missions and earn rewards\\. Your referrer earns ${Math.round(config.referralPayoutSplit * 100)}% of your winnings for ${config.referralAttributionDays} days\\.\n\n` +
-          `*Next steps:*\n` +
-          `1\\. /wallet \\<solana\\_address\\> — Set your SOL wallet for payouts\n` +
-          `2\\. /link \\<discord\\_id\\> — Link your Discord for submission tracking\n` +
-          `3\\. /help — See all available commands`,
+          `Before you can participate, we need you to agree to our Privacy Policy and provide some details\\.`,
           { parse_mode: 'MarkdownV2' }
         );
         console.log(`[Telegram] Referral registration: ${userId} (${username}) via code ${payload}`);
+        // Send terms agreement
+        await sendTermsAgreement(ctx, userId);
       } else {
-        // Still welcome them even if referral failed
-        await ctx.reply(
-          `*Mission Control Bot*\n\n` +
-          `⚠️ Referral: ${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
-          `Use /help to see available commands\\.`,
-          { parse_mode: 'MarkdownV2' }
-        );
+        // Check if they already have an attribution but haven't completed onboarding
+        const existing = getAttributionByRecruit(userId);
+        if (existing && !existing.onboardingComplete) {
+          if (!existing.agreedToTerms) {
+            await ctx.reply(`👋 *Welcome back\\!*\n\nYou still need to complete onboarding\\.`, { parse_mode: 'MarkdownV2' });
+            await sendTermsAgreement(ctx, userId);
+          } else {
+            await ctx.reply(`👋 *Welcome back\\!*\n\nLet's finish setting up your account\\.`, { parse_mode: 'MarkdownV2' });
+            // Figure out which step they're on
+            if (!existing.twitterHandle) {
+              await promptOnboardingStep(ctx, userId, 'twitter');
+            } else if (!existing.solanaWallet) {
+              await promptOnboardingStep(ctx, userId, 'sol');
+            } else if (!existing.ethWallet) {
+              await promptOnboardingStep(ctx, userId, 'eth');
+            }
+          }
+        } else {
+          await ctx.reply(
+            `*Mission Control Bot*\n\n` +
+            `⚠️ Referral: ${escapeMarkdown(result.error || 'Unknown error')}\n\n` +
+            `Use /help to see available commands\\.`,
+            { parse_mode: 'MarkdownV2' }
+          );
+        }
       }
       return;
     }
 
-    // Default welcome (no referral code)
+    // No referral code — check if existing user needs to complete onboarding
+    const existing = getAttributionByRecruit(userId);
+    if (existing && !existing.onboardingComplete) {
+      if (!existing.agreedToTerms) {
+        await ctx.reply(`👋 *Welcome back\\!*\n\nYou still need to complete onboarding\\.`, { parse_mode: 'MarkdownV2' });
+        await sendTermsAgreement(ctx, userId);
+      } else {
+        await ctx.reply(`👋 *Welcome back\\!*\n\nLet's finish setting up your account\\.`, { parse_mode: 'MarkdownV2' });
+        if (!existing.twitterHandle) {
+          await promptOnboardingStep(ctx, userId, 'twitter');
+        } else if (!existing.solanaWallet) {
+          await promptOnboardingStep(ctx, userId, 'sol');
+        } else if (!existing.ethWallet) {
+          await promptOnboardingStep(ctx, userId, 'eth');
+        }
+      }
+      return;
+    }
+
+    // Default welcome (no referral code, no pending onboarding)
     await ctx.reply(
       '*Mission Control Bot*\n\n' +
       'Generate mission briefs from Notion content and create Discord threads for submissions\\.\n\n' +
@@ -1418,6 +1515,123 @@ export async function startTelegramBot(): Promise<void> {
     }
 
     await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+  });
+
+  // ============================================================================
+  // Callback Query — Terms Agreement Button
+  // ============================================================================
+  telegramBot.callbackQuery(/^agree_terms:(.+)$/, async (ctx) => {
+    const callbackUserId = ctx.match![1];
+    const actualUserId = ctx.from?.id?.toString();
+
+    // Only the user who was sent the button can press it
+    if (callbackUserId !== actualUserId) {
+      await ctx.answerCallbackQuery({ text: 'This button is not for you.', show_alert: true });
+      return;
+    }
+
+    // Check they have an attribution record
+    const attribution = getAttributionByRecruit(actualUserId);
+    if (!attribution) {
+      await ctx.answerCallbackQuery({ text: 'No account found. Please join via a referral link first.', show_alert: true });
+      return;
+    }
+
+    // Mark as agreed
+    markAgreedToTerms(actualUserId);
+    await ctx.answerCallbackQuery({ text: '✅ Terms accepted!' });
+
+    // Edit the original message to show agreement
+    try {
+      await ctx.editMessageText(
+        '📋 *Privacy Policy Agreement*\n\n✅ You have agreed to the Privacy Policy\\.\n\n_Now let\'s collect your details\\._',
+        { parse_mode: 'MarkdownV2' }
+      );
+    } catch {}
+
+    console.log(`[Telegram] Terms agreed by ${actualUserId}`);
+
+    // Start data collection
+    await promptOnboardingStep(ctx, actualUserId, 'twitter');
+  });
+
+  // ============================================================================
+  // Onboarding Data Collection — handles text responses during onboarding flow
+  // ============================================================================
+  telegramBot.on('message:text', async (ctx, next) => {
+    // Only handle private chats during onboarding
+    if (!isPrivateChat(ctx)) return next();
+
+    const userId = ctx.from?.id?.toString();
+    if (!userId) return next();
+
+    const step = onboardingState.get(userId);
+    if (!step) return next(); // Not in onboarding flow
+
+    const text = ctx.message.text.trim();
+
+    // Skip if it looks like a command
+    if (text.startsWith('/')) {
+      onboardingState.delete(userId);
+      return next();
+    }
+
+    if (step === 'twitter') {
+      // Validate Twitter handle
+      const handle = text.replace(/^@/, '').replace(/^https?:\/\/(x\.com|twitter\.com)\//, '');
+      if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+        await ctx.reply(
+          '⚠️ Invalid Twitter handle\\. Please send a valid handle \\(letters, numbers, underscores, max 15 chars\\)\\.',
+          { parse_mode: 'MarkdownV2' }
+        );
+        return;
+      }
+
+      setTwitterHandle(userId, handle);
+      await ctx.reply(`✅ Twitter set: @${escapeMarkdown(handle)}`, { parse_mode: 'MarkdownV2' });
+      await promptOnboardingStep(ctx, userId, 'sol');
+
+    } else if (step === 'sol') {
+      // Validate Solana address (base58, 32-44 chars)
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text)) {
+        await ctx.reply(
+          '⚠️ Invalid Solana address\\. Should be 32\\-44 base58 characters\\.',
+          { parse_mode: 'MarkdownV2' }
+        );
+        return;
+      }
+
+      setSolanaWallet(userId, text);
+      setReferrerSolanaWallet(userId, text); // Also set on referrer record if they have one
+      await ctx.reply(`✅ SOL wallet saved: \`${escapeMarkdown(text.substring(0, 8))}\\.\\.\\.\``, { parse_mode: 'MarkdownV2' });
+      await promptOnboardingStep(ctx, userId, 'eth');
+
+    } else if (step === 'eth') {
+      // Validate ETH address (0x + 40 hex chars)
+      if (!/^0x[a-fA-F0-9]{40}$/.test(text)) {
+        await ctx.reply(
+          '⚠️ Invalid Ethereum address\\. Should start with `0x` followed by 40 hex characters\\.',
+          { parse_mode: 'MarkdownV2' }
+        );
+        return;
+      }
+
+      setEthWallet(userId, text);
+      onboardingState.delete(userId);
+      markOnboardingComplete(userId);
+
+      await ctx.reply(
+        `✅ ETH wallet saved: \`${escapeMarkdown(text.substring(0, 8))}\\.\\.\\.\`\n\n` +
+        `🎉 *Onboarding complete\\!*\n\n` +
+        `You're all set to participate in missions and earn rewards\\.\n\n` +
+        `*Commands:*\n` +
+        `/help — See all available commands\n` +
+        `/referral — Get your own referral link to invite others\n` +
+        `/referrals — Check your referral stats`,
+        { parse_mode: 'MarkdownV2' }
+      );
+      console.log(`[Telegram] Onboarding complete for ${userId}`);
+    }
   });
 
   // ============================================================================
